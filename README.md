@@ -1,36 +1,41 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Task Rhythm Planner
 
-## Getting Started
+A Next.js dashboard for planning work as a Gantt-style task board with:
 
-First, run the development server:
+- **Database-driven architecture** (file-based JSON with Server Actions)
+- **Gantt timeline** with type/tag filters and auto-scroll to today
+- **Task notes** and subtask checkboxes with real-time persistence  
+- **Outreach inbox** (waiting on me / waiting on them + age tracking)
+- **Creative gradient design** with animated backgrounds and responsive layout
+
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open [http://localhost:3003](http://localhost:3003).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> Port 3003 is used to avoid colliding with other local projects on 3000/3001/3002.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Architecture
 
-## Learn More
+### Database layer
+- `lib/db/schema.ts` — TypeScript types for tasks and outreach items
+- `lib/db/seed.ts` — Initial data populated on first run
+- `lib/db/actions.ts` — Server Actions for reads/writes
+- `data/database.json` — JSON file created automatically (gitignored)
 
-To learn more about Next.js, take a look at the following resources:
+### UI
+- `app/page.tsx` — Client component fetching from Server Actions
+- Narrower max-width (1280px) for better responsiveness
+- Gradient-based design with animated background orbs
+- Horizontal-scroll Gantt with sticky task labels
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Common commands
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run lint
+npm run build
+```
