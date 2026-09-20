@@ -155,6 +155,12 @@ export const CATEGORY_META: Record<GoalCategory, CategoryMeta> = {
     gradient: "from-teal-500 to-cyan-500",
     soft: "bg-teal-500/10 border-teal-400/20 text-teal-200",
   },
+  soccer: {
+    label: "Soccer",
+    icon: "⚽",
+    gradient: "from-lime-500 to-green-500",
+    soft: "bg-lime-500/10 border-lime-400/20 text-lime-200",
+  },
   other: {
     label: "Goal",
     icon: "◆",

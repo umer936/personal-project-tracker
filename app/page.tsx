@@ -56,6 +56,7 @@ const CATEGORIES: GoalCategory[] = [
   "craft",
   "finance",
   "rest",
+  "soccer",
   "other",
 ];
 
