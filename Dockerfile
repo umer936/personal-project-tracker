@@ -7,9 +7,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Copy the rest of the app
+# Copy the rest of the app and build for production
 COPY . .
+RUN npm run build
 
 EXPOSE 3003
 
-CMD ["npm", "run", "dev"]
+# Run the compiled production server (no Turbopack HMR = stable)
+CMD ["npm", "run", "start"]

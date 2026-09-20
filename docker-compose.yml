@@ -7,11 +7,9 @@ services:
     ports:
       - "3003:3003"
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
     volumes:
-      # Mount source for live reload, but keep container's node_modules/.next
-      - .:/app
-      - /app/node_modules
-      - /app/.next
-    command: npm run dev
+      # Persist the JSON data store on the host; no source bind-mount so the
+      # production build inside the image stays intact (avoids HMR/reload loops).
+      - ./data:/app/data
     restart: unless-stopped
