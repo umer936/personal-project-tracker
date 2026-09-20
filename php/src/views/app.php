@@ -16,7 +16,7 @@ function action_context(string $tab, string $monthKey): string
         . '<input type="hidden" name="month" value="' . e($monthKey) . '">';
 }
 
-function render_app_page(string $user, array $db, string $tab, string $monthKey): void
+function render_app_page(string $user, array $db, string $tab, string $monthKey, ?array $flash = null): void
 {
     $goals = $db['goals'];
     $outreach = $db['outreachItems'];
@@ -83,6 +83,12 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey)
                 </nav>
 
                 <div class="flex shrink-0 items-center gap-2">
+                    <?php if (is_admin($user)): ?>
+                        <a href="/admin" title="Manage users"
+                           class="flex h-9 items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-500/10 px-3 text-sm text-amber-100 transition hover:bg-amber-500/20">
+                            <span aria-hidden>🛡</span><span class="hidden sm:inline">Admin</span>
+                        </a>
+                    <?php endif; ?>
                     <button type="button" onclick="document.getElementById('data-modal').showModal()"
                             class="flex h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white">
                         <span aria-hidden>⚙</span><span class="hidden sm:inline">Data</span>
@@ -725,17 +731,26 @@ function render_data_dialog(string $tab, string $monthKey): void
     modal_open('data-modal', 'Backup & restore');
     ?>
     <div class="space-y-5">
-        <p class="text-sm text-slate-400">Your planner is stored on the server under your account. Export a backup file you can keep, or reset back to the starter goals.</p>
+        <p class="text-sm text-slate-400">Your planner is stored on the server under your account. Export a backup, import one to restore, or reset back to the starter data.</p>
         <div class="space-y-2">
-            <a href="/export" class="block w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110">⬇ Export backup (.json)</a>
+            <a href="/export" hx-boost="false" class="block w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110">⬇ Export backup (.json)</a>
+
+            <form method="post" action="/import" enctype="multipart/form-data" hx-boost="false">
+                <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+                <input type="file" name="file" accept="application/json,.json" required
+                       onchange="document.getElementById('import-submit').disabled = !this.files.length"
+                       class="w-full cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-slate-200 hover:bg-white/10">
+                <button type="submit" id="import-submit" disabled
+                        class="mt-2 block w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-center text-sm font-medium text-slate-200 transition hover:bg-white/10 disabled:opacity-40">⬆ Import backup…</button>
+            </form>
+            <p class="text-[11px] text-slate-500">Importing replaces everything currently stored. Consider exporting first.</p>
         </div>
         <div class="border-t border-white/10 pt-4">
-            <form method="post" action="/action" onsubmit="return confirm('Reset all data back to the default goals? This can\'t be undone.')">
+            <form method="post" action="/action" hx-confirm="Reset all data back to the starter data? This can't be undone.">
                 <?= action_context($tab, $monthKey) ?>
                 <input type="hidden" name="action" value="reset">
-                <button type="submit" class="w-full rounded-lg border border-rose-400/20 bg-rose-500/5 px-4 py-2 text-sm text-rose-200 transition hover:bg-rose-500/10">Reset to default goals</button>
+                <button type="submit" class="w-full rounded-lg border border-rose-400/20 bg-rose-500/5 px-4 py-2 text-sm text-rose-200 transition hover:bg-rose-500/10">Reset to starter data</button>
             </form>
-            <p class="mt-1.5 text-[11px] text-slate-500">This replaces everything currently stored. Consider exporting first.</p>
         </div>
     </div>
     <?php

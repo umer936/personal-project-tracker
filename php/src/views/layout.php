@@ -13,10 +13,15 @@ function layout_head(string $title): void
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= e($title) ?></title>
     <meta name="description" content="A calm, focused personal planner: recurring rhythms, monthly progress, and an outreach inbox.">
+    <!-- Keep scroll position when htmx swaps in updated content after an action. -->
+    <meta name="htmx-config" content='{"scrollIntoViewOnBoost": false}'>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@4/dist/htmx.min.js"></script>
     <link rel="stylesheet" href="/app.css">
 </head>
-<body class="min-h-full flex flex-col bg-slate-950 text-slate-100">
+<!-- hx-boost turns every link/form into an AJAX request that swaps the page body,
+     so actions update in place instead of reloading. Works without JS too. -->
+<body hx-boost="true" class="min-h-full flex flex-col bg-slate-950 text-slate-100">
 <?php
 }
 

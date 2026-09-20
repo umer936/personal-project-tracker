@@ -298,3 +298,33 @@ function update_outreach_fields(string $user, string $itemId, array $patch): voi
     }
     store_write($user, $db);
 }
+
+// ---------- Backup / restore ----------
+
+/**
+ * Replace a user's store from an uploaded JSON backup.
+ * Returns an error message on failure, or null on success.
+ */
+function import_database(string $user, string $json): ?string
+{
+    $parsed = json_decode($json, true);
+    if (!is_array($parsed)) {
+        return "That file isn't valid JSON.";
+    }
+    if (!isset($parsed['goals']) || !is_array($parsed['goals'])
+        || !isset($parsed['outreachItems']) || !is_array($parsed['outreachItems'])) {
+        return "That doesn't look like a planner backup (missing goals or outreachItems).";
+    }
+
+    $db = [
+        'version' => $parsed['version'] ?? 2,
+        'goals' => array_values($parsed['goals']),
+        'outreachItems' => array_values($parsed['outreachItems']),
+    ];
+    // Keep the demo account on its daily-reset schedule.
+    if ($user === DEMO_USER) {
+        $db['demoResetOn'] = today_key();
+    }
+    store_write($user, $db);
+    return null;
+}

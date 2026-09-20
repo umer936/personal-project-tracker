@@ -9,15 +9,15 @@ function default_goals(): array
 {
     return [
         ['id' => 'prayer', 'title' => 'Pray 5× daily', 'category' => 'prayer', 'type' => 'daily', 'locked' => true, 'perDay' => 5, 'dailyLog' => [], 'months' => [], 'notes' => ''],
-            ['id' => 'exercise', 'title' => 'Exercise', 'category' => 'exercise', 'type' => 'count', 'monthlyTarget' => 3, 'unit' => 'sessions', 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
-            ['id' => 'stretch', 'title' => 'Stretch', 'category' => 'stretch', 'type' => 'count', 'monthlyTarget' => 3, 'unit' => 'sessions', 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
-            ['id' => 'reading', 'title' => 'Read a book', 'category' => 'reading', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'books', 'logEntries' => true, 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
-            ['id' => 'blog', 'title' => 'Write a blog post', 'category' => 'blog', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'posts', 'logEntries' => true, 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
-            ['id' => 'craft', 'title' => 'Make something (draw / crochet / Cricut)', 'category' => 'craft', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'pieces', 'logEntries' => true, 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
-            ['id' => 'finance', 'title' => 'Finance / accounts check', 'category' => 'finance', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'checks', 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
-            ['id' => 'rest', 'title' => 'Take a no-work day (no projects)', 'category' => 'rest', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'days', 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
-            ['id' => 'soccer', 'title' => 'Soccer training', 'category' => 'soccer', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'sessions', 'logEntries' => true, 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
-            ['id' => 'video', 'title' => 'Publish a YouTube video', 'category' => 'video', 'type' => 'project', 'stepTemplate' => ['Idea', 'Script', 'Record', 'Edit', 'Thumbnail', 'Publish'], 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+        ['id' => 'exercise', 'title' => 'Exercise', 'category' => 'exercise', 'type' => 'count', 'monthlyTarget' => 3, 'unit' => 'sessions', 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+        ['id' => 'stretch', 'title' => 'Stretch', 'category' => 'stretch', 'type' => 'count', 'monthlyTarget' => 3, 'unit' => 'sessions', 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+        ['id' => 'reading', 'title' => 'Read a book', 'category' => 'reading', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'books', 'logEntries' => true, 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+        ['id' => 'blog', 'title' => 'Write a blog post', 'category' => 'blog', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'posts', 'logEntries' => true, 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+        ['id' => 'craft', 'title' => 'Make something (draw / crochet / Cricut)', 'category' => 'craft', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'pieces', 'logEntries' => true, 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+        ['id' => 'finance', 'title' => 'Finance / accounts check', 'category' => 'finance', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'checks', 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+        ['id' => 'rest', 'title' => 'Take a no-work day (no projects)', 'category' => 'rest', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'days', 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+        ['id' => 'soccer', 'title' => 'Soccer training', 'category' => 'soccer', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'sessions', 'logEntries' => true, 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+        ['id' => 'video', 'title' => 'Publish a YouTube video', 'category' => 'video', 'type' => 'project', 'stepTemplate' => ['Idea', 'Script', 'Record', 'Edit', 'Thumbnail', 'Publish'], 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
     ];
 }
 

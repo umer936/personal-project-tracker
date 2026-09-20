@@ -9,6 +9,14 @@ require_once __DIR__ . '/store.php';
 
 const DEMO_PASSWORD = 'demo';
 
+// The single admin account. Whoever holds this username can manage other users.
+const ADMIN_USER = 'umer936';
+
+function is_admin(?string $user): bool
+{
+    return $user !== null && $user === ADMIN_USER;
+}
+
 function users_path(): string
 {
     return data_dir() . '/users.json';
@@ -66,6 +74,16 @@ function require_login(): string
     $user = current_user();
     if ($user === null) {
         header('Location: /login');
+        exit;
+    }
+    return $user;
+}
+
+function require_admin(): string
+{
+    $user = require_login();
+    if (!is_admin($user)) {
+        header('Location: /');
         exit;
     }
     return $user;
@@ -149,4 +167,63 @@ function verify_csrf(?string $token): bool
 {
     start_session();
     return is_string($token) && !empty($_SESSION['csrf']) && hash_equals($_SESSION['csrf'], $token);
+}
+
+// ---------- Flash messages ----------
+
+function set_flash(string $text, string $kind = 'ok'): void
+{
+    start_session();
+    $_SESSION['flash'] = ['text' => $text, 'kind' => $kind];
+}
+
+/** @return array{text:string,kind:string}|null */
+function take_flash(): ?array
+{
+    start_session();
+    $flash = $_SESSION['flash'] ?? null;
+    unset($_SESSION['flash']);
+    return $flash;
+}
+
+// ---------- Admin: user management ----------
+
+/**
+ * A summary of every account for the admin page.
+ * @return array<int, array{username:string,created:string,role:string,goals:int,followUps:int}>
+ */
+function list_user_summaries(): array
+{
+    $users = load_users();
+    $rows = [];
+    foreach ($users as $username => $meta) {
+        $db = store_read($username);
+        $role = $username === ADMIN_USER ? 'admin' : (!empty($meta['demo']) ? 'demo' : 'user');
+        $rows[] = [
+            'username' => $username,
+            'created' => $meta['created'] ?? '—',
+            'role' => $role,
+            'goals' => count($db['goals'] ?? []),
+            'followUps' => count($db['outreachItems'] ?? []),
+        ];
+    }
+    usort($rows, fn($a, $b) => strcmp($a['username'], $b['username']));
+    return $rows;
+}
+
+/** Delete an account and its stored planner. The admin account is protected. */
+function delete_user(string $username): bool
+{
+    $username = strtolower(trim($username));
+    if ($username === ADMIN_USER || $username === '') {
+        return false;
+    }
+    $users = load_users();
+    if (!isset($users[$username])) {
+        return false;
+    }
+    unset($users[$username]);
+    save_users($users);
+    @unlink(store_path($username));
+    return true;
 }

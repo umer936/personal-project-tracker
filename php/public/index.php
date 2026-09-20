@@ -8,6 +8,7 @@ require_once __DIR__ . '/../src/auth.php';
 require_once __DIR__ . '/../src/views/layout.php';
 require_once __DIR__ . '/../src/views/auth.php';
 require_once __DIR__ . '/../src/views/app.php';
+require_once __DIR__ . '/../src/views/admin.php';
 
 ensure_demo_user();
 
@@ -99,6 +100,44 @@ if ($path === '/export') {
     exit;
 }
 
+if ($path === '/import' && $method === 'POST') {
+    if (!verify_csrf(post('csrf'))) {
+        set_flash('Your session expired. Please try again.', 'error');
+        redirect('/');
+    }
+    if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+        set_flash('No file was uploaded.', 'error');
+        redirect('/');
+    }
+    $json = (string) file_get_contents($_FILES['file']['tmp_name']);
+    $error = import_database($user, $json);
+    set_flash($error ?? 'Backup imported. You\'re all set.', $error ? 'error' : 'ok');
+    redirect('/');
+}
+
+// ---------- Admin routes ----------
+
+if ($path === '/admin') {
+    if (!is_admin($user)) {
+        redirect('/');
+    }
+    render_admin_page($user, take_flash());
+    exit;
+}
+
+if ($path === '/admin/action' && $method === 'POST') {
+    if (!is_admin($user)) {
+        redirect('/');
+    }
+    if (verify_csrf(post('csrf')) && post('action') === 'deleteUser') {
+        $target = post('username');
+        if (delete_user($target)) {
+            set_flash('Deleted account “' . $target . '”.', 'ok');
+        }
+    }
+    redirect('/admin');
+}
+
 if ($path === '/action' && $method === 'POST') {
     $tab = safe_tab(post('tab'));
     $month = safe_month(post('month'));
@@ -187,4 +226,4 @@ if ($path === '/action' && $method === 'POST') {
 $tab = safe_tab($_GET['tab'] ?? 'goals');
 $month = safe_month($_GET['month'] ?? current_month_key());
 $db = store_read($user);
-render_app_page($user, $db, $tab, $month);
+render_app_page($user, $db, $tab, $month, take_flash());
