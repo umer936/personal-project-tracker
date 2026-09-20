@@ -300,3 +300,42 @@ export async function updateOutreachFields(
   );
   write(db);
 }
+
+// ---------- Backup / restore ----------
+
+// Serialize the whole database to a pretty JSON string (for downloading a backup).
+export async function exportDatabase(): Promise<string> {
+  return JSON.stringify(read(), null, 2);
+}
+
+// Replace the database from an uploaded JSON string. Returns an error message
+// on failure, or null on success.
+export async function importDatabase(json: string): Promise<string | null> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return "That file isn't valid JSON.";
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !Array.isArray((parsed as DatabaseFile).goals) ||
+    !Array.isArray((parsed as DatabaseFile).outreachItems)
+  ) {
+    return "That doesn't look like a planner backup (missing goals or outreachItems).";
+  }
+  const db = parsed as DatabaseFile;
+  write({
+    version: db.version ?? 2,
+    goals: db.goals,
+    outreachItems: db.outreachItems,
+  });
+  return null;
+}
+
+// Wipe local data and re-seed from defaults.
+export async function resetDatabase() {
+  const seeded = clone(DEFAULT_DATABASE);
+  write(seeded);
+}

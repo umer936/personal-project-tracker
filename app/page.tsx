@@ -17,10 +17,13 @@ import {
   createOutreach,
   deleteGoal,
   deleteOutreach,
+  exportDatabase,
   getGoals,
   getOutreachItems,
+  importDatabase,
   logOutreachTouch,
   removeMonthEntry,
+  resetDatabase,
   setDailyCount,
   setOutreachStage,
   snoozeOutreach,
@@ -191,6 +194,7 @@ export default function Home() {
   const [loaded, setLoaded] = useState(false);
   const [showAddGoal, setShowAddGoal] = useState(false);
   const [showAddOutreach, setShowAddOutreach] = useState(false);
+  const [showData, setShowData] = useState(false);
 
   const reloadGoals = () => getGoals().then(setGoals);
   const reloadOutreach = () => getOutreachItems().then(setOutreach);
@@ -301,6 +305,15 @@ export default function Home() {
             className="rounded-full bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-1.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition hover:brightness-110"
           >
             + New
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowData(true)}
+            title="Backup / restore your data"
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white"
+          >
+            ⚙ Data
           </button>
         </div>
       </header>
@@ -439,6 +452,17 @@ export default function Home() {
               setShowAddOutreach(false);
             })
           }
+        />
+      )}
+
+      {showData && (
+        <DataDialog
+          onClose={() => setShowData(false)}
+          onChanged={() => {
+            startTransition(async () => {
+              await Promise.all([reloadGoals(), reloadOutreach()]);
+            });
+          }}
         />
       )}
     </main>
@@ -1120,6 +1144,129 @@ function AddOutreachDialog({
           Add contact
         </button>
       </form>
+    </Modal>
+  );
+}
+
+function DataDialog({
+  onClose,
+  onChanged,
+}: {
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  const handleExport = async () => {
+    setBusy(true);
+    try {
+      const json = await exportDatabase();
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `rhythm-planner-backup-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setMessage({ kind: "ok", text: "Backup downloaded." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleImportFile = async (file: File) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const text = await file.text();
+      const error = await importDatabase(text);
+      if (error) {
+        setMessage({ kind: "error", text: error });
+      } else {
+        onChanged();
+        setMessage({ kind: "ok", text: "Data imported. You're all set." });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReset = () => {
+    if (!window.confirm("Reset all data back to the default goals? This can't be undone.")) return;
+    setBusy(true);
+    setMessage(null);
+    (async () => {
+      await resetDatabase();
+      onChanged();
+      setMessage({ kind: "ok", text: "Data reset to defaults." });
+      setBusy(false);
+    })();
+  };
+
+  return (
+    <Modal title="Backup & restore" onClose={onClose}>
+      <div className="space-y-5">
+        <p className="text-sm text-slate-400">
+          Your planner is stored only in this browser. Export a backup file you can keep or move to
+          another device, and import it to restore.
+        </p>
+
+        <div className="space-y-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={handleExport}
+            className="w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+          >
+            ⬇ Export backup (.json)
+          </button>
+
+          <label className={cn("block w-full cursor-pointer rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-center text-sm font-medium text-slate-200 transition hover:bg-white/10", busy && "pointer-events-none opacity-50")}>
+            ⬆ Import backup…
+            <input
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportFile(file);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+
+        {message && (
+          <p
+            className={cn(
+              "rounded-lg border px-3 py-2 text-sm",
+              message.kind === "ok"
+                ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
+                : "border-rose-400/30 bg-rose-500/10 text-rose-200",
+            )}
+          >
+            {message.text}
+          </p>
+        )}
+
+        <div className="border-t border-white/10 pt-4">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={handleReset}
+            className="w-full rounded-lg border border-rose-400/20 bg-rose-500/5 px-4 py-2 text-sm text-rose-200 transition hover:bg-rose-500/10 disabled:opacity-50"
+          >
+            Reset to default goals
+          </button>
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            Importing replaces everything currently stored. Consider exporting first.
+          </p>
+        </div>
+      </div>
     </Modal>
   );
 }

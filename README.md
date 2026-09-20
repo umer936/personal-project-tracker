@@ -54,9 +54,9 @@ npm run dev      # http://localhost:3003
 | `next.config.ts`                    | output "export" (static build)                     |
 | `Dockerfile`, `docker-compose.yml`  | Optional nginx static hosting                      |
 ---
-## Resetting or backing up your data
-Everything is under one localStorage key: **`rhythm-planner-db-v1`**.
-- **Back up:** open the browser dev tools console and run
-  `copy(localStorage.getItem("rhythm-planner-db-v1"))` to copy the JSON.
-- **Restore:** `localStorage.setItem("rhythm-planner-db-v1", <your JSON string>)`.
-- **Reset:** `localStorage.removeItem("rhythm-planner-db-v1")` then refresh.
+## Backing up, moving, or resetting your data
+Click **⚙ Data** in the top bar:
+- **Export backup (.json)** downloads your entire planner as a dated JSON file.
+- **Import backup…** restores from a previously exported file (replaces current data) — handy for moving to another browser or device.
+- **Reset to default goals** wipes local data and starts fresh.
+Under the hood everything lives in one `localStorage` key: `rhythm-planner-db-v1`.
