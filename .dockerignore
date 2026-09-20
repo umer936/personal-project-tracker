@@ -1,8 +1,7 @@
-node_modules
-.next
+# Keep the build context small and out of the image.
 .git
 .idea
-npm-debug.log*
-Dockerfile
-docker-compose.yml
 *.md
+
+# Runtime per-user data (created at runtime / mounted as a volume).
+php/data

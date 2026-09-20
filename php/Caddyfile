@@ -1,0 +1,20 @@
+{
+	# FrankenPHP's PHP app server. Disable automatic HTTPS since this container
+	# sits behind your own reverse proxy / is accessed over plain HTTP locally.
+	frankenphp
+	auto_https off
+}
+
+:80 {
+	root * /app/public
+	encode gzip
+
+	# Front-controller routing: real files (css, etc.) are served directly;
+	# every other path falls back to index.php, which routes the request.
+	@notFile {
+		not file
+	}
+	rewrite @notFile /index.php
+
+	php_server
+}

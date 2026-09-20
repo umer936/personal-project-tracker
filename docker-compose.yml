@@ -5,6 +5,12 @@ services:
       dockerfile: Dockerfile
     container_name: planner-app
     ports:
-      # Visit http://localhost:3003 — nginx serves the static export on port 80.
+      # Visit http://localhost:3003 — FrankenPHP serves the PHP app on port 80.
       - "3003:80"
+    volumes:
+      # Persist per-user planner data (JSON files) across container rebuilds.
+      - planner-data:/app/data
     restart: unless-stopped
+
+volumes:
+  planner-data:

@@ -1,62 +1,89 @@
 # Rhythm — Personal Planner
+
 A calm, single-page personal planner with two tabs:
+
 - **Goals** — month-aware life-improvement tracker (daily prayers, monthly exercise/stretch/reading, a YouTube video pipeline, blog, arts & crafts, finance check, a monthly no-work rest day, soccer training, and any custom goals you add).
 - **Outreach** — a lightweight follow-up pipeline for people you need to contact.
-It is built with **Next.js** and exported to a **fully static site** — plain HTML/CSS/JS with no server, no database, and no Docker required. You can drop it on any web host (Apache, nginx, a PHP shared host, GitHub Pages, etc.).
+
+It is a **server-rendered PHP application** served by **[FrankenPHP](https://frankenphp.dev/)** (a single, self-contained PHP app server built on Caddy). Each account's data is read from and written to JSON files on the server, and the whole app sits behind a **username/password login** so your planner isn't public.
+
+
 ---
+
+## Accounts & privacy
+
+- **Open registration** — anyone can create an account from the sign-in screen; each account gets its own private planner.
+- **Login required** — nothing is visible until you sign in.
+- **Demo account** — a built-in `demo` / `demo` account lets people look around without registering. It **resets to the default goals once per calendar day** (lazily, on the first load of a new day).
+
+Passwords are hashed with PHP's `password_hash()`. Credentials live in `data/users.json`; each user's planner lives in `data/stores/<username>.json`.
+
+---
+
 ## How data is stored
-There is **no backend**. All your data lives in your **browser''s `localStorage`**. That means:
-- Data is saved automatically as you use the app — nothing to run, no file to manage.
-- Data is **per-browser / per-device**. Using a different browser or device starts fresh; they do not sync.
-- Clearing the site''s data resets the planner.
-- New locked "core" goals shipped in an update are added automatically without wiping your existing progress.
-The starting set of goals is defined in `lib/db/seed.ts`.
+
+There is now a **real backend**. Data is stored on the server as JSON:
+
+| Path                          | What it is                                        |
+|-------------------------------|---------------------------------------------------|
+| `data/users.json`             | Username → password hash (created at runtime)     |
+| `data/stores/<username>.json` | One planner file per account                      |
+
+- Data is **shared across your devices/browsers** — it's tied to your account, not your browser.
+- New locked "core" goals shipped in an update are merged into existing accounts automatically without wiping progress.
+- The `data/` folder is **git-ignored** and persisted via a Docker named volume so it survives rebuilds.
+
+The starting set of goals is defined in `php/src/seed.php`.
+
 ---
-## Deploy it (no build tools on the server)
-### Option A — Upload the static files (recommended)
-1. Build the site (needs Node.js 20+ **only on your machine** (Node 26 LTS recommended), not the server):
-   ```bash
-   npm install
-   npm run build
-   ```
-2. This produces an **`out/`** folder — a complete static site.
-3. Upload the **contents of `out/`** to your web host''s public folder
-   (e.g. `public_html/`, `www/`, or wherever your host serves files from).
-That is it — open the site in a browser. No Node, no PHP, no Docker needed on the server.
-> **Hosting under a subfolder?** The exported asset links are root-relative
-> (`/_next/...`), so the app expects to live at the domain root
-> (e.g. `https://example.com/`). If you must host it under a subpath
-> (e.g. `https://example.com/planner/`), set `basePath: "/planner"` in
-> `next.config.ts` and rebuild.
-### Option B — Docker (optional convenience)
-If you would rather run it in a container, the included `Dockerfile` builds the
-static site and serves it with nginx:
+
+## Run it (Docker + FrankenPHP)
+
 ```bash
 docker compose up -d --build
 ```
-Then visit http://localhost:3003.
+
+Then visit http://localhost:3003 and sign in (or click **Try the demo**).
+
+The `docker-compose.yml` mounts a named volume at `/app/data` so accounts and planner data persist across container rebuilds.
+
 ---
-## Local development
+
+## Local development (no Docker)
+
+You just need PHP 8.1+ installed:
+
 ```bash
-npm install
-npm run dev      # http://localhost:3003
+cd php/public
+php -S 127.0.0.1:8099 index.php   # router = front controller
 ```
+
+Then open http://127.0.0.1:8099. (The `index.php` router mimics the Caddy rewrite so clean URLs like `/login` work with the built-in server.)
+
 ---
-## Project layout
-| Path                                | What it is                                         |
-|-------------------------------------|----------------------------------------------------|
-| `app/page.tsx`                      | The whole UI (Goals + Outreach tabs)               |
-| `app/layout.tsx`, `app/globals.css` | Root layout and styling (Tailwind CSS v4)          |
-| `lib/db/schema.ts`                  | Data model (types)                                 |
-| `lib/db/seed.ts`                    | Default goals used to seed a fresh browser         |
-| `lib/db/store.ts`                   | Client-side data layer (reads/writes localStorage) |
-| `lib/ui.ts`                         | UI helpers + category/channel metadata             |
-| `next.config.ts`                    | output "export" (static build)                     |
-| `Dockerfile`, `docker-compose.yml`  | Optional nginx static hosting                      |
+
+## Project layout (PHP app)
+
+| Path                        | What it is                                                     |
+|-----------------------------|----------------------------------------------------------------|
+| `php/public/index.php`      | Front controller — routing + the `/action` dispatcher          |
+| `php/public/app.css`        | Global styling + Tailwind-v4 gradient bridges + animations     |
+| `php/src/helpers.php`       | Date/month math, goal calculations, category/channel metadata  |
+| `php/src/seed.php`          | Default goals + outreach used to seed accounts / reset demo    |
+| `php/src/store.php`         | Per-user JSON data layer (reads/writes + mutations)            |
+| `php/src/auth.php`          | Sessions, registration, login/logout, CSRF                     |
+| `php/src/views/`            | HTML views: layout, auth screen, main planner                  |
+| `php/Caddyfile`             | FrankenPHP server config (front-controller routing)            |
+| `Dockerfile`                | Builds the FrankenPHP image                                     |
+| `docker-compose.yml`        | Runs the app on port 3003 with a persistent data volume        |
+
+Styling uses the **Tailwind Play CDN** at runtime, so there is no build step.
+
 ---
-## Backing up, moving, or resetting your data
+
+## Backing up or resetting your data
+
 Click **⚙ Data** in the top bar:
-- **Export backup (.json)** downloads your entire planner as a dated JSON file.
-- **Import backup…** restores from a previously exported file (replaces current data) — handy for moving to another browser or device.
-- **Reset to default goals** wipes local data and starts fresh.
-Under the hood everything lives in one `localStorage` key: `rhythm-planner-db-v1`.
+
+- **Export backup (.json)** downloads your entire planner as a dated JSON file (`GET /export`).
+- **Reset to default goals** wipes your account's data and re-seeds the starter goals.

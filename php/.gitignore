@@ -1,0 +1,2 @@
+# Runtime per-user planner data (created at runtime / mounted as a Docker volume).
+data/
