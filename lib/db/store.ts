@@ -53,6 +53,20 @@ function read(): DatabaseFile {
       changed = true;
     }
   }
+
+  // One-time migration: early static builds shipped with no outreach items, so
+  // browsers seeded then have an empty list. If we've never run this migration
+  // and the list is still empty, populate it from the seed. Runs once, so it
+  // won't fight any items you add or delete later.
+  const OUTREACH_SEED_FLAG = "rhythm-planner-outreach-seeded-v1";
+  if (!window.localStorage.getItem(OUTREACH_SEED_FLAG)) {
+    window.localStorage.setItem(OUTREACH_SEED_FLAG, "1");
+    if (db.outreachItems.length === 0 && DEFAULT_DATABASE.outreachItems.length > 0) {
+      db.outreachItems = DEFAULT_DATABASE.outreachItems.map((o) => clone(o));
+      changed = true;
+    }
+  }
+
   if (changed) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
 
   return db;
