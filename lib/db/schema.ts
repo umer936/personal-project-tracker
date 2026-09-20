@@ -36,14 +36,27 @@ export type Task = {
 
 export type InboxOwner = "me" | "them";
 
+export type OutreachChannel = "email" | "text" | "call" | "dm" | "meet";
+
+// Pipeline stage for a contact/follow-up.
+export type OutreachStage = "todo" | "waiting" | "done";
+
+// A single logged interaction with a contact.
+export type OutreachTouch = {
+  date: string; // YYYY-MM-DD
+  note: string;
+};
+
 export type OutreachItem = {
   id: string;
   name: string;
   topic: string;
-  owner: InboxOwner;
-  lastAction: string; // YYYY-MM-DD
+  channel: OutreachChannel;
+  stage: OutreachStage;
+  lastAction: string; // YYYY-MM-DD — when you last touched this thread
+  followUpOn: string | null; // YYYY-MM-DD — when to nudge next (null = no reminder)
   nextAction: string;
-  done: boolean;
+  history: OutreachTouch[];
 };
 
 export type DatabaseFile = {

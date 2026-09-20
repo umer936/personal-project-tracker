@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import type { InboxOwner, OutreachItem, Task, TaskCadence, TaskStatus, TaskType } from "@/lib/db/schema";
+import type {
+  OutreachChannel,
+  OutreachItem,
+  OutreachStage,
+  Task,
+  TaskCadence,
+  TaskStatus,
+  TaskType,
+} from "@/lib/db/schema";
 import {
   addSubtask,
   adjustMonthlyProgress,
@@ -11,22 +19,26 @@ import {
   deleteTask,
   getOutreachItems,
   getTasks,
-  toggleOutreachDone,
-  updateOutreachOwner,
+  logOutreachTouch,
+  setOutreachStage,
+  snoozeOutreach,
+  updateOutreachFields,
   updateSubtask,
   updateTaskNotes,
   updateTaskStatus,
   updateTaskTitle,
 } from "@/lib/db/actions";
 import {
+  CHANNEL_META,
   STATUS_META,
   TYPE_META,
   cn,
   currentMonthKey,
   daysSince,
+  daysUntil,
   formatLongDate,
+  formatShortDate,
   startOfDay,
-  toDateString,
 } from "@/lib/ui";
 import { Timeline } from "./components/Timeline";
 
@@ -150,10 +162,22 @@ export default function Home() {
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
 
-  const openOutreach = outreach.filter((o) => !o.done);
-  const waitingOnMe = openOutreach.filter((o) => o.owner === "me");
-  const waitingOnThem = openOutreach.filter((o) => o.owner === "them");
-  const staleCount = waitingOnMe.filter((o) => daysSince(o.lastAction) > 3).length;
+  // Outreach pipeline buckets.
+  const isFollowUpDue = (o: OutreachItem) => o.followUpOn !== null && daysUntil(o.followUpOn) <= 0;
+  const outreachUrgency = (o: OutreachItem) => {
+    if (o.followUpOn) return daysUntil(o.followUpOn); // earlier (more negative) = more urgent
+    return daysSince(o.lastAction) * -1 + 999; // no follow-up date → lower priority
+  };
+  const sortOutreach = (list: OutreachItem[]) =>
+    [...list].sort((a, b) => outreachUrgency(a) - outreachUrgency(b));
+
+  const todoItems = sortOutreach(outreach.filter((o) => o.stage === "todo"));
+  const waitingItems = sortOutreach(outreach.filter((o) => o.stage === "waiting"));
+  const doneItems = outreach.filter((o) => o.stage === "done");
+  const followUpDue = sortOutreach(
+    outreach.filter((o) => o.stage !== "done" && isFollowUpDue(o)),
+  );
+  const needsAttention = todoItems.length + followUpDue.length;
 
   const activeCount = tasks.filter((t) => t.status !== "done").length;
   const avgMonthly =
@@ -178,9 +202,16 @@ export default function Home() {
     setSelectedTaskId("");
     withReload(() => deleteTask(id), reloadTasks);
   };
-  const handleOwner = (id: string, owner: InboxOwner) =>
-    withReload(() => updateOutreachOwner(id, owner, toDateString(startOfDay(new Date()))), reloadOutreach);
-  const handleOutreachDone = (id: string) => withReload(() => toggleOutreachDone(id), reloadOutreach);
+  const handleStage = (id: string, stage: OutreachStage) =>
+    withReload(() => setOutreachStage(id, stage), reloadOutreach);
+  const handleTouch = (id: string, note?: string, followUpInDays?: number) =>
+    withReload(() => logOutreachTouch(id, { note, followUpInDays }), reloadOutreach);
+  const handleSnooze = (id: string, days: number) =>
+    withReload(() => snoozeOutreach(id, days), reloadOutreach);
+  const handleUpdateOutreach = (
+    id: string,
+    patch: Partial<Pick<OutreachItem, "name" | "topic" | "channel" | "nextAction" | "followUpOn">>,
+  ) => withReload(() => updateOutreachFields(id, patch), reloadOutreach);
   const handleDeleteOutreach = (id: string) => withReload(() => deleteOutreach(id), reloadOutreach);
 
   const today = loaded ? startOfDay(new Date()) : null;
@@ -219,8 +250,8 @@ export default function Home() {
                 )}
               >
                 {t}
-                {t === "outreach" && staleCount > 0 && (
-                  <span className="ml-1.5 rounded-full bg-rose-500/80 px-1.5 text-[10px] text-white">{staleCount}</span>
+                {t === "outreach" && needsAttention > 0 && (
+                  <span className="ml-1.5 rounded-full bg-rose-500/80 px-1.5 text-[10px] text-white">{needsAttention}</span>
                 )}
               </button>
             ))}
@@ -270,8 +301,12 @@ export default function Home() {
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <StatCard label="Active tasks" value={String(activeCount)} hint={`${tasks.length} total`} />
               <StatCard label="Monthly progress" value={`${avgMonthly}%`} hint="avg across tasks" />
-              <StatCard label="Waiting on me" value={String(waitingOnMe.length)} hint={staleCount > 0 ? `${staleCount} stale` : "all fresh"} />
-              <StatCard label="Waiting on them" value={String(waitingOnThem.length)} hint="pending replies" />
+              <StatCard label="Your move" value={String(todoItems.length)} hint="contacts to reach out to" />
+              <StatCard
+                label="Follow-ups due"
+                value={String(followUpDue.length)}
+                hint={followUpDue.length > 0 ? "needs a nudge" : "all scheduled"}
+              />
             </section>
 
             {/* Today's focus */}
@@ -437,28 +472,96 @@ export default function Home() {
         )}
 
         {loaded && tab === "outreach" && (
-          <div className="animate-fade-in grid gap-6 lg:grid-cols-2">
-            <OutreachColumn
-              title="Waiting on me"
-              accent="text-cyan-200"
-              items={waitingOnMe}
-              moveLabel="→ Them"
-              onMove={(id) => handleOwner(id, "them")}
-              onDone={handleOutreachDone}
-              onDelete={handleDeleteOutreach}
-              highlightStale
-              isPending={isPending}
-            />
-            <OutreachColumn
-              title="Waiting on them"
-              accent="text-fuchsia-200"
-              items={waitingOnThem}
-              moveLabel="→ Me"
-              onMove={(id) => handleOwner(id, "me")}
-              onDone={handleOutreachDone}
-              onDelete={handleDeleteOutreach}
-              isPending={isPending}
-            />
+          <div className="animate-fade-in space-y-6">
+            {/* Follow-ups due banner */}
+            {followUpDue.length > 0 && (
+              <section className="rounded-2xl border border-rose-400/30 bg-rose-500/5 p-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="text-rose-300">⏰</span>
+                  <h2 className="text-sm font-semibold text-rose-200">Follow-ups due</h2>
+                  <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-xs text-rose-200">
+                    {followUpDue.length}
+                  </span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {followUpDue.map((item) => (
+                    <OutreachCard
+                      key={item.id}
+                      item={item}
+                      isPending={isPending}
+                      onStage={handleStage}
+                      onTouch={handleTouch}
+                      onSnooze={handleSnooze}
+                      onUpdate={handleUpdateOutreach}
+                      onDelete={handleDeleteOutreach}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <OutreachColumn title="Your move" accent="text-cyan-200" count={todoItems.length}>
+                {todoItems.length === 0 ? (
+                  <EmptyHint text="Nobody's waiting on you. Nice." />
+                ) : (
+                  todoItems.map((item) => (
+                    <OutreachCard
+                      key={item.id}
+                      item={item}
+                      isPending={isPending}
+                      onStage={handleStage}
+                      onTouch={handleTouch}
+                      onSnooze={handleSnooze}
+                      onUpdate={handleUpdateOutreach}
+                      onDelete={handleDeleteOutreach}
+                    />
+                  ))
+                )}
+              </OutreachColumn>
+
+              <OutreachColumn title="Waiting on them" accent="text-fuchsia-200" count={waitingItems.length}>
+                {waitingItems.length === 0 ? (
+                  <EmptyHint text="No pending replies." />
+                ) : (
+                  waitingItems.map((item) => (
+                    <OutreachCard
+                      key={item.id}
+                      item={item}
+                      isPending={isPending}
+                      onStage={handleStage}
+                      onTouch={handleTouch}
+                      onSnooze={handleSnooze}
+                      onUpdate={handleUpdateOutreach}
+                      onDelete={handleDeleteOutreach}
+                    />
+                  ))
+                )}
+              </OutreachColumn>
+            </div>
+
+            {/* Done (collapsible) */}
+            {doneItems.length > 0 && (
+              <details className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+                <summary className="cursor-pointer text-sm font-medium text-slate-300">
+                  Done · {doneItems.length}
+                </summary>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {doneItems.map((item) => (
+                    <OutreachCard
+                      key={item.id}
+                      item={item}
+                      isPending={isPending}
+                      onStage={handleStage}
+                      onTouch={handleTouch}
+                      onSnooze={handleSnooze}
+                      onUpdate={handleUpdateOutreach}
+                      onDelete={handleDeleteOutreach}
+                    />
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         )}
       </div>
@@ -511,92 +614,223 @@ export default function Home() {
   );
 }
 
-// ---------- Outreach column ----------
+// ---------- Outreach ----------
 
 function OutreachColumn({
   title,
   accent,
-  items,
-  moveLabel,
-  onMove,
-  onDone,
-  onDelete,
-  isPending,
-  highlightStale,
+  count,
+  children,
 }: {
   title: string;
   accent: string;
-  items: OutreachItem[];
-  moveLabel: string;
-  onMove: (id: string) => void;
-  onDone: (id: string) => void;
-  onDelete: (id: string) => void;
-  isPending: boolean;
-  highlightStale?: boolean;
+  count: number;
+  children: React.ReactNode;
 }) {
   return (
     <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
       <div className="mb-4 flex items-center justify-between">
         <h2 className={cn("text-sm font-semibold", accent)}>{title}</h2>
-        <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300">{items.length}</span>
+        <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300">{count}</span>
       </div>
-      <div className="space-y-2">
-        {items.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-white/10 py-6 text-center text-sm text-slate-500">
-            Nothing here.
-          </p>
-        ) : (
-          items.map((item) => {
-            const stale = highlightStale && daysSince(item.lastAction) > 3;
-            return (
-              <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
-                <div className="mb-2 flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-white">{item.name}</p>
-                    <p className="truncate text-xs text-slate-400">{item.topic}</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-[10px]",
-                      stale ? "bg-rose-500/20 text-rose-200" : "bg-white/10 text-slate-400",
-                    )}
-                  >
-                    {daysSince(item.lastAction)}d
-                  </span>
-                </div>
-                <p className="mb-3 text-xs leading-relaxed text-slate-300">{item.nextAction}</p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onMove(item.id)}
-                    disabled={isPending}
-                    className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-200 transition hover:bg-white/10"
-                  >
-                    {moveLabel}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDone(item.id)}
-                    disabled={isPending}
-                    className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20"
-                  >
-                    ✓ Done
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(item.id)}
-                    disabled={isPending}
-                    className="ml-auto rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-400 transition hover:border-rose-400/30 hover:text-rose-200"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+      <div className="space-y-3">{children}</div>
     </section>
+  );
+}
+
+function EmptyHint({ text }: { text: string }) {
+  return (
+    <p className="rounded-xl border border-dashed border-white/10 py-6 text-center text-sm text-slate-500">
+      {text}
+    </p>
+  );
+}
+
+function FollowUpChip({ item }: { item: OutreachItem }) {
+  if (item.stage === "done") {
+    return <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">closed</span>;
+  }
+  if (!item.followUpOn) {
+    return (
+      <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-400">
+        {daysSince(item.lastAction)}d since
+      </span>
+    );
+  }
+  const until = daysUntil(item.followUpOn);
+  if (until < 0) {
+    return (
+      <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] text-rose-200">
+        {Math.abs(until)}d overdue
+      </span>
+    );
+  }
+  if (until === 0) {
+    return <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] text-amber-200">due today</span>;
+  }
+  return (
+    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-400">
+      in {until}d
+    </span>
+  );
+}
+
+const outreachBtn = "rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-50";
+
+function OutreachCard({
+  item,
+  isPending,
+  onStage,
+  onTouch,
+  onSnooze,
+  onUpdate,
+  onDelete,
+}: {
+  item: OutreachItem;
+  isPending: boolean;
+  onStage: (id: string, stage: OutreachStage) => void;
+  onTouch: (id: string, note?: string, followUpInDays?: number) => void;
+  onSnooze: (id: string, days: number) => void;
+  onUpdate: (
+    id: string,
+    patch: Partial<Pick<OutreachItem, "name" | "topic" | "channel" | "nextAction" | "followUpOn">>,
+  ) => void;
+  onDelete: (id: string) => void;
+}) {
+  const channel = CHANNEL_META[item.channel];
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(item.name);
+  const [topic, setTopic] = useState(item.topic);
+  const [channelValue, setChannelValue] = useState<OutreachChannel>(item.channel);
+  const [nextAction, setNextAction] = useState(item.nextAction);
+  const [followUpOn, setFollowUpOn] = useState(item.followUpOn ?? "");
+
+  const overdue = item.stage !== "done" && item.followUpOn !== null && daysUntil(item.followUpOn) <= 0;
+
+  if (editing) {
+    return (
+      <div className="rounded-xl border border-cyan-400/30 bg-slate-950/60 p-3">
+        <div className="space-y-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} className={cn(inputClass, "py-1.5")} placeholder="Name" />
+          <input value={topic} onChange={(e) => setTopic(e.target.value)} className={cn(inputClass, "py-1.5")} placeholder="Topic" />
+          <div className="flex gap-2">
+            <select value={channelValue} onChange={(e) => setChannelValue(e.target.value as OutreachChannel)} className={cn(inputClass, "py-1.5")}>
+              {(Object.keys(CHANNEL_META) as OutreachChannel[]).map((c) => (
+                <option key={c} value={c} className="bg-slate-900">
+                  {CHANNEL_META[c].icon} {CHANNEL_META[c].label}
+                </option>
+              ))}
+            </select>
+            <input type="date" value={followUpOn} onChange={(e) => setFollowUpOn(e.target.value)} className={cn(inputClass, "py-1.5")} />
+          </div>
+          <textarea value={nextAction} onChange={(e) => setNextAction(e.target.value)} className={cn(inputClass, "min-h-16 py-1.5")} placeholder="Next action" />
+        </div>
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => {
+              onUpdate(item.id, {
+                name,
+                topic,
+                channel: channelValue,
+                nextAction,
+                followUpOn: followUpOn || null,
+              });
+              setEditing(false);
+            }}
+            className="flex-1 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
+          >
+            Save
+          </button>
+          <button type="button" onClick={() => setEditing(false)} className={outreachBtn}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("rounded-xl border bg-black/20 p-3", overdue ? "border-rose-400/30" : "border-white/10")}>
+      <div className="mb-1.5 flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-sm" title={channel.label}>
+            {channel.icon}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate font-medium text-white">{item.name}</p>
+            <p className="truncate text-xs text-slate-400">{item.topic}</p>
+          </div>
+        </div>
+        <FollowUpChip item={item} />
+      </div>
+
+      <p className="mb-2 text-xs leading-relaxed text-slate-300">{item.nextAction}</p>
+
+      <p className="mb-3 text-[11px] text-slate-500">
+        Last touch {daysSince(item.lastAction)}d ago
+        {item.followUpOn && item.stage !== "done" && <> · follow up {formatShortDate(item.followUpOn)}</>}
+        {item.history.length > 0 && <> · {item.history.length} logged</>}
+      </p>
+
+      <div className="flex flex-wrap gap-1.5">
+        {item.stage === "done" ? (
+          <button type="button" disabled={isPending} onClick={() => onStage(item.id, "todo")} className={outreachBtn}>
+            ↩ Reopen
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => onTouch(item.id)}
+              className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20 disabled:opacity-50"
+              title="Record that you reached out; schedules a follow-up in 5 days"
+            >
+              ✓ Log touch
+            </button>
+            {item.stage === "waiting" && (
+              <>
+                <button type="button" disabled={isPending} onClick={() => onSnooze(item.id, 3)} className={outreachBtn}>
+                  +3d
+                </button>
+                <button type="button" disabled={isPending} onClick={() => onSnooze(item.id, 7)} className={outreachBtn}>
+                  +7d
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => onStage(item.id, item.stage === "todo" ? "waiting" : "todo")}
+              className={outreachBtn}
+            >
+              {item.stage === "todo" ? "→ Waiting" : "→ Your move"}
+            </button>
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => onStage(item.id, "done")}
+              className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20 disabled:opacity-50"
+            >
+              Done
+            </button>
+          </>
+        )}
+        <button type="button" onClick={() => setEditing(true)} className={cn(outreachBtn, "ml-auto")}>
+          Edit
+        </button>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => onDelete(item.id)}
+          className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-400 transition hover:border-rose-400/30 hover:text-rose-200 disabled:opacity-50"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -898,26 +1132,46 @@ function AddOutreachDialog({
   isPending,
 }: {
   onClose: () => void;
-  onCreate: (input: { name: string; topic: string; nextAction: string }) => void;
+  onCreate: (input: {
+    name: string;
+    topic: string;
+    nextAction: string;
+    channel: OutreachChannel;
+    followUpInDays: number | null;
+  }) => void;
   isPending: boolean;
 }) {
   const [name, setName] = useState("");
   const [topic, setTopic] = useState("");
   const [nextAction, setNextAction] = useState("");
+  const [channel, setChannel] = useState<OutreachChannel>("email");
+  const [followUpInDays, setFollowUpInDays] = useState(5);
 
   return (
-    <Modal title="New outreach" onClose={onClose}>
+    <Modal title="New contact" onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
           if (!name.trim()) return;
-          onCreate({ name, topic, nextAction });
+          onCreate({ name, topic, nextAction, channel, followUpInDays: followUpInDays || null });
         }}
       >
-        <div>
-          <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Name</label>
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. redacted" className={inputClass} />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Name</label>
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. redacted" className={inputClass} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Channel</label>
+            <select value={channel} onChange={(e) => setChannel(e.target.value as OutreachChannel)} className={inputClass}>
+              {(Object.keys(CHANNEL_META) as OutreachChannel[]).map((c) => (
+                <option key={c} value={c} className="bg-slate-900">
+                  {CHANNEL_META[c].icon} {CHANNEL_META[c].label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div>
           <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Topic</label>
@@ -926,6 +1180,19 @@ function AddOutreachDialog({
         <div>
           <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Next action</label>
           <textarea value={nextAction} onChange={(e) => setNextAction(e.target.value)} placeholder="Send update and ask for timeline." className={cn(inputClass, "min-h-20")} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">
+            Remind me to follow up in (days)
+          </label>
+          <input
+            type="number"
+            min={0}
+            value={followUpInDays}
+            onChange={(e) => setFollowUpInDays(Number(e.target.value))}
+            className={inputClass}
+          />
+          <p className="mt-1 text-[11px] text-slate-500">Set to 0 for no reminder.</p>
         </div>
         <button
           type="submit"

@@ -1,4 +1,4 @@
-import type { TaskStatus, TaskType } from "@/lib/db/schema";
+import type { OutreachChannel, TaskStatus, TaskType } from "@/lib/db/schema";
 
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -57,6 +57,27 @@ export function daysSince(dateString: string) {
   const diff = today.getTime() - startOfDay(target).getTime();
   return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
 }
+
+// Positive = days until the date; negative = days overdue.
+export function daysUntil(dateString: string) {
+  const target = startOfDay(parseDate(dateString));
+  const today = startOfDay(new Date());
+  return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export function formatShortDate(dateString: string) {
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(parseDate(dateString));
+}
+
+export type ChannelMeta = { label: string; icon: string };
+
+export const CHANNEL_META: Record<OutreachChannel, ChannelMeta> = {
+  email: { label: "Email", icon: "✉" },
+  text: { label: "Text", icon: "💬" },
+  call: { label: "Call", icon: "☎" },
+  dm: { label: "DM", icon: "@" },
+  meet: { label: "Meet", icon: "🤝" },
+};
 
 export type TypeMeta = {
   label: string;
