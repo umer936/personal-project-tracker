@@ -1,8 +1,10 @@
-"use server";
+// Client-side data layer for the static export build.
+//
+// There is no server on a static host, so all reads/writes go to the browser's
+// localStorage. The public API mirrors the old server actions in ./actions.ts,
+// so the UI can call these the same way (all functions are async).
+"use client";
 
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import { revalidatePath } from "next/cache";
 import type {
   DatabaseFile,
   Goal,
@@ -13,17 +15,52 @@ import type {
   OutreachItem,
   OutreachStage,
 } from "@/lib/db/schema";
+import { DEFAULT_DATABASE, STORAGE_KEY } from "@/lib/db/seed";
 
-const DATABASE_FILE_PATH = path.join(process.cwd(), "data", "database.json");
-
-async function readDatabase(): Promise<DatabaseFile> {
-  const raw = await fs.readFile(DATABASE_FILE_PATH, "utf8");
-  return JSON.parse(raw) as DatabaseFile;
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
-async function writeDatabase(database: DatabaseFile) {
-  await fs.writeFile(DATABASE_FILE_PATH, JSON.stringify(database, null, 2), "utf8");
-  revalidatePath("/");
+// Read the database from localStorage, seeding it on first run. Any locked
+// "core" goals in the seed that aren't present yet are merged in, so shipping a
+// new default goal automatically shows up without wiping existing progress.
+function read(): DatabaseFile {
+  if (typeof window === "undefined") return clone(DEFAULT_DATABASE);
+
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    const seeded = clone(DEFAULT_DATABASE);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+    return seeded;
+  }
+
+  let db: DatabaseFile;
+  try {
+    db = JSON.parse(raw) as DatabaseFile;
+  } catch {
+    db = clone(DEFAULT_DATABASE);
+  }
+
+  db.goals = db.goals ?? [];
+  db.outreachItems = db.outreachItems ?? [];
+
+  // Merge in any new locked core goals from the seed.
+  const existingIds = new Set(db.goals.map((g) => g.id));
+  let changed = false;
+  for (const seedGoal of DEFAULT_DATABASE.goals) {
+    if (seedGoal.locked && !existingIds.has(seedGoal.id)) {
+      db.goals.push(clone(seedGoal));
+      changed = true;
+    }
+  }
+  if (changed) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+
+  return db;
+}
+
+function write(db: DatabaseFile) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
 }
 
 function slugify(value: string) {
@@ -41,36 +78,36 @@ function todayString() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-// Deterministic id for a project step so the client and server always agree.
+function addDaysString(base: string, days: number) {
+  const [y, m, d] = base.split("-").map(Number);
+  const date = new Date(y, m - 1, d + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function stepIdFor(title: string) {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function mapGoal(db: DatabaseFile, goalId: string, fn: (goal: Goal) => Goal) {
+  db.goals = db.goals.map((g) => (g.id === goalId ? fn(g) : g));
 }
 
 // ---------- Reads ----------
 
-export async function getGoals() {
-  const database = await readDatabase();
-  return database.goals;
+export async function getGoals(): Promise<Goal[]> {
+  return read().goals;
 }
 
-export async function getOutreachItems() {
-  const database = await readDatabase();
-  return database.outreachItems;
+export async function getOutreachItems(): Promise<OutreachItem[]> {
+  return read().outreachItems;
 }
 
 // ---------- Goal mutations ----------
 
-function mapGoal(database: DatabaseFile, goalId: string, fn: (goal: Goal) => Goal) {
-  database.goals = database.goals.map((g) => (g.id === goalId ? fn(g) : g));
-}
-
-// Set the completion count for a specific day (used by daily goals like prayer).
 export async function setDailyCount(goalId: string, dateKey: string, count: number) {
-  const database = await readDatabase();
-  mapGoal(database, goalId, (goal) => {
+  const db = read();
+  mapGoal(db, goalId, (goal) => {
     const max = goal.perDay ?? 1;
     const clamped = Math.max(0, Math.min(max, count));
     const dailyLog = { ...goal.dailyLog };
@@ -78,27 +115,24 @@ export async function setDailyCount(goalId: string, dateKey: string, count: numb
     else dailyLog[dateKey] = clamped;
     return { ...goal, dailyLog };
   });
-  await writeDatabase(database);
+  write(db);
 }
 
-// Adjust a count goal's monthly total (exercise/stretch/reading).
 export async function adjustMonthCount(goalId: string, monthKey: string, delta: number) {
-  const database = await readDatabase();
-  mapGoal(database, goalId, (goal) => {
+  const db = read();
+  mapGoal(db, goalId, (goal) => {
     const state = goal.months[monthKey] ?? {};
     const next = Math.max(0, (state.count ?? 0) + delta);
     return { ...goal, months: { ...goal.months, [monthKey]: { ...state, count: next } } };
   });
-  await writeDatabase(database);
+  write(db);
 }
 
-// Add a labeled entry to a count goal that records what you did (book read,
-// craft made). The month count is derived from the number of entries.
 export async function addMonthEntry(goalId: string, monthKey: string, label: string) {
   const trimmed = label.trim();
   if (!trimmed) return;
-  const database = await readDatabase();
-  mapGoal(database, goalId, (goal) => {
+  const db = read();
+  mapGoal(db, goalId, (goal) => {
     const state = goal.months[monthKey] ?? {};
     const entries = [...(state.entries ?? []), trimmed];
     return {
@@ -106,13 +140,12 @@ export async function addMonthEntry(goalId: string, monthKey: string, label: str
       months: { ...goal.months, [monthKey]: { ...state, entries, count: entries.length } },
     };
   });
-  await writeDatabase(database);
+  write(db);
 }
 
-// Remove one labeled entry by index.
 export async function removeMonthEntry(goalId: string, monthKey: string, index: number) {
-  const database = await readDatabase();
-  mapGoal(database, goalId, (goal) => {
+  const db = read();
+  mapGoal(db, goalId, (goal) => {
     const state = goal.months[monthKey] ?? {};
     const entries = (state.entries ?? []).filter((_, i) => i !== index);
     return {
@@ -120,29 +153,26 @@ export async function removeMonthEntry(goalId: string, monthKey: string, index: 
       months: { ...goal.months, [monthKey]: { ...state, entries, count: entries.length } },
     };
   });
-  await writeDatabase(database);
+  write(db);
 }
 
-// Toggle a project step for a given month (YouTube pipeline). Steps are
-// initialised from the goal's template the first time a month is touched.
 export async function toggleProjectStep(goalId: string, monthKey: string, stepId: string) {
-  const database = await readDatabase();
-  mapGoal(database, goalId, (goal) => {
+  const db = read();
+  mapGoal(db, goalId, (goal) => {
     const template = goal.stepTemplate ?? [];
     const existing = goal.months[monthKey]?.steps;
     const steps: GoalStep[] =
-      existing ??
-      template.map((title) => ({ id: stepIdFor(title), title, completed: false }));
+      existing ?? template.map((title) => ({ id: stepIdFor(title), title, completed: false }));
     const nextSteps = steps.map((s) => (s.id === stepId ? { ...s, completed: !s.completed } : s));
     return { ...goal, months: { ...goal.months, [monthKey]: { ...goal.months[monthKey], steps: nextSteps } } };
   });
-  await writeDatabase(database);
+  write(db);
 }
 
 export async function updateGoalNotes(goalId: string, notes: string) {
-  const database = await readDatabase();
-  mapGoal(database, goalId, (goal) => ({ ...goal, notes }));
-  await writeDatabase(database);
+  const db = read();
+  mapGoal(db, goalId, (goal) => ({ ...goal, notes }));
+  write(db);
 }
 
 export async function createGoal(input: {
@@ -155,7 +185,7 @@ export async function createGoal(input: {
   logEntries?: boolean;
   stepTemplate?: string[];
 }) {
-  const database = await readDatabase();
+  const db = read();
   const goal: Goal = {
     id: slugify(input.title),
     title: input.title.trim() || "New goal",
@@ -167,33 +197,24 @@ export async function createGoal(input: {
     unit: input.type === "count" ? input.unit ?? "times" : undefined,
     logEntries: input.type === "count" ? input.logEntries ?? false : undefined,
     stepTemplate:
-      input.type === "project"
-        ? input.stepTemplate ?? ["Idea", "Draft", "Finish"]
-        : undefined,
+      input.type === "project" ? input.stepTemplate ?? ["Idea", "Draft", "Finish"] : undefined,
     dailyLog: {},
     months: {},
     notes: "",
   };
-  database.goals = [...database.goals, goal];
-  await writeDatabase(database);
+  db.goals = [...db.goals, goal];
+  write(db);
   return goal;
 }
 
 export async function deleteGoal(goalId: string) {
-  const database = await readDatabase();
+  const db = read();
   // Core (locked) goals can't be deleted.
-  database.goals = database.goals.filter((g) => g.id !== goalId || g.locked);
-  await writeDatabase(database);
+  db.goals = db.goals.filter((g) => g.id !== goalId || g.locked);
+  write(db);
 }
 
 // ---------- Outreach mutations ----------
-
-function addDaysString(base: string, days: number) {
-  const [y, m, d] = base.split("-").map(Number);
-  const date = new Date(y, m - 1, d + days);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
 
 export async function createOutreach(input: {
   name: string;
@@ -202,7 +223,7 @@ export async function createOutreach(input: {
   channel?: OutreachChannel;
   followUpInDays?: number | null;
 }) {
-  const database = await readDatabase();
+  const db = read();
   const today = todayString();
   const item: OutreachItem = {
     id: slugify(input.name),
@@ -218,35 +239,33 @@ export async function createOutreach(input: {
     nextAction: input.nextAction.trim() || "Draft the first message.",
     history: [],
   };
-  database.outreachItems = [item, ...database.outreachItems];
-  await writeDatabase(database);
+  db.outreachItems = [item, ...db.outreachItems];
+  write(db);
   return item;
 }
 
 export async function deleteOutreach(itemId: string) {
-  const database = await readDatabase();
-  database.outreachItems = database.outreachItems.filter((item) => item.id !== itemId);
-  await writeDatabase(database);
+  const db = read();
+  db.outreachItems = db.outreachItems.filter((item) => item.id !== itemId);
+  write(db);
 }
 
 export async function setOutreachStage(itemId: string, stage: OutreachStage) {
-  const database = await readDatabase();
-  database.outreachItems = database.outreachItems.map((item) =>
+  const db = read();
+  db.outreachItems = db.outreachItems.map((item) =>
     item.id === itemId ? { ...item, stage } : item,
   );
-  await writeDatabase(database);
+  write(db);
 }
 
-// Log an interaction: records history, marks last-contacted today, moves the
-// thread to "waiting", and schedules the next follow-up.
 export async function logOutreachTouch(
   itemId: string,
   input: { note?: string; followUpInDays?: number } = {},
 ) {
-  const database = await readDatabase();
+  const db = read();
   const today = todayString();
   const days = input.followUpInDays ?? 5;
-  database.outreachItems = database.outreachItems.map((item) =>
+  db.outreachItems = db.outreachItems.map((item) =>
     item.id === itemId
       ? {
           ...item,
@@ -257,28 +276,27 @@ export async function logOutreachTouch(
         }
       : item,
   );
-  await writeDatabase(database);
+  write(db);
 }
 
-// Push the follow-up reminder out by N days (keeps current stage).
 export async function snoozeOutreach(itemId: string, days: number) {
-  const database = await readDatabase();
+  const db = read();
   const today = todayString();
-  database.outreachItems = database.outreachItems.map((item) =>
+  db.outreachItems = db.outreachItems.map((item) =>
     item.id === itemId
       ? { ...item, followUpOn: addDaysString(item.followUpOn ?? today, days) }
       : item,
   );
-  await writeDatabase(database);
+  write(db);
 }
 
 export async function updateOutreachFields(
   itemId: string,
   patch: Partial<Pick<OutreachItem, "name" | "topic" | "channel" | "nextAction" | "followUpOn">>,
 ) {
-  const database = await readDatabase();
-  database.outreachItems = database.outreachItems.map((item) =>
+  const db = read();
+  db.outreachItems = db.outreachItems.map((item) =>
     item.id === itemId ? { ...item, ...patch } : item,
   );
-  await writeDatabase(database);
+  write(db);
 }

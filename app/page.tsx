@@ -26,7 +26,7 @@ import {
   snoozeOutreach,
   toggleProjectStep,
   updateOutreachFields,
-} from "@/lib/db/actions";
+} from "@/lib/db/store";
 import {
   CATEGORY_META,
   CHANNEL_META,

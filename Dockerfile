@@ -1,17 +1,18 @@
 # syntax=docker/dockerfile:1
-FROM node:22-alpine
 
+# This project builds to a *static* site (see next.config.ts: output "export").
+# Docker is entirely optional — you can just upload the ./out folder to any host.
+# This image is a convenience: it builds the static site and serves it with nginx.
+
+# Stage 1 — build the static export (./out)
+FROM node:22-alpine AS builder
 WORKDIR /app
-
-# Install dependencies first (better layer caching)
 COPY package*.json ./
 RUN npm ci
-
-# Copy the rest of the app and build for production
 COPY . .
 RUN npm run build
 
-EXPOSE 3003
-
-# Run the compiled production server (no Turbopack HMR = stable)
-CMD ["npm", "run", "start"]
+# Stage 2 — serve the static files
+FROM nginx:alpine
+COPY --from=builder /app/out /usr/share/nginx/html
+EXPOSE 80

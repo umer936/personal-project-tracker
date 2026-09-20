@@ -5,11 +5,6 @@ services:
       dockerfile: Dockerfile
     container_name: planner-app
     ports:
-      - "3003:3003"
-    environment:
-      NODE_ENV: production
-    volumes:
-      # Persist the JSON data store on the host; no source bind-mount so the
-      # production build inside the image stays intact (avoids HMR/reload loops).
-      - ./data:/app/data
+      # Visit http://localhost:3003 — nginx serves the static export on port 80.
+      - "3003:80"
     restart: unless-stopped
