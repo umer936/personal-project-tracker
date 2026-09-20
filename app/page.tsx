@@ -183,7 +183,7 @@ export default function Home() {
   const handleOutreachDone = (id: string) => withReload(() => toggleOutreachDone(id), reloadOutreach);
   const handleDeleteOutreach = (id: string) => withReload(() => deleteOutreach(id), reloadOutreach);
 
-  const today = startOfDay(new Date());
+  const today = loaded ? startOfDay(new Date()) : null;
 
   return (
     <main className="relative min-h-screen overflow-x-hidden">
@@ -198,7 +198,7 @@ export default function Home() {
       <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-fuchsia-500 text-sm font-bold text-white shadow-lg shadow-fuchsia-500/30">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br from-cyan-500 to-fuchsia-500 text-sm font-bold text-white shadow-lg shadow-fuchsia-500/30">
               R
             </div>
             <div>
@@ -229,7 +229,7 @@ export default function Home() {
           <button
             type="button"
             onClick={() => (tab === "outreach" ? setShowAddOutreach(true) : setShowAddTask(true))}
-            className="rounded-full bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-4 py-1.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition hover:brightness-110"
+            className="rounded-full bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-1.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition hover:brightness-110"
           >
             + New
           </button>
@@ -260,7 +260,7 @@ export default function Home() {
           <div className="animate-fade-in space-y-8">
             {/* Hero */}
             <section>
-              <p className="text-sm text-slate-400">{formatLongDate(today)}</p>
+              <p className="text-sm text-slate-400">{today ? formatLongDate(today) : ""}</p>
               <h1 className="mt-1 text-3xl font-bold tracking-tight text-white sm:text-4xl">
                 Keep the rhythm going.
               </h1>
@@ -284,7 +284,7 @@ export default function Home() {
                       key={task.id}
                       className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4"
                     >
-                      <div className="relative flex-shrink-0">
+                      <div className="relative shrink-0">
                         <ProgressRing percent={monthPercent(task)} gradientId={`focus-${task.id}`} />
                         <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white">
                           {monthPercent(task)}%
@@ -402,7 +402,7 @@ export default function Home() {
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
                         <div
-                          className={cn("h-full rounded-full bg-gradient-to-r", meta.gradient)}
+                          className={cn("h-full rounded-full bg-linear-to-r", meta.gradient)}
                           style={{ width: `${mPercent}%` }}
                         />
                       </div>
@@ -557,7 +557,7 @@ function OutreachColumn({
                   </div>
                   <span
                     className={cn(
-                      "flex-shrink-0 rounded-full px-2 py-0.5 text-[10px]",
+                      "shrink-0 rounded-full px-2 py-0.5 text-[10px]",
                       stale ? "bg-rose-500/20 text-rose-200" : "bg-white/10 text-slate-400",
                     )}
                   >
@@ -664,7 +664,7 @@ function TaskDrawer({
             </span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-            <div className={cn("h-full rounded-full bg-gradient-to-r", meta.gradient)} style={{ width: `${mPercent}%` }} />
+            <div className={cn("h-full rounded-full bg-linear-to-r", meta.gradient)} style={{ width: `${mPercent}%` }} />
           </div>
           <div className="mt-3 flex gap-2">
             <button
@@ -883,7 +883,7 @@ function AddTaskDialog({
         <button
           type="submit"
           disabled={isPending || !title.trim()}
-          className="w-full rounded-lg bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+          className="w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
         >
           Create task
         </button>
@@ -930,7 +930,7 @@ function AddOutreachDialog({
         <button
           type="submit"
           disabled={isPending || !name.trim()}
-          className="w-full rounded-lg bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+          className="w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
         >
           Add contact
         </button>

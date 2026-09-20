@@ -219,7 +219,7 @@ export function Timeline({
 
                   <div
                     className={cn(
-                      "pointer-events-none absolute top-2 flex items-center rounded-lg border bg-gradient-to-r px-2 shadow-lg",
+                      "pointer-events-none absolute top-2 flex items-center rounded-lg border bg-linear-to-r px-2 shadow-lg",
                       meta.gradient,
                       task.status === "done" ? "opacity-60" : "opacity-90",
                       "border-white/20",
