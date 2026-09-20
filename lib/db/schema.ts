@@ -12,6 +12,7 @@ export type GoalCategory =
   | "blog"
   | "craft"
   | "finance"
+  | "rest"
   | "other";
 
 // How a goal is measured:

@@ -149,6 +149,12 @@ export const CATEGORY_META: Record<GoalCategory, CategoryMeta> = {
     gradient: "from-green-500 to-emerald-500",
     soft: "bg-green-500/10 border-green-400/20 text-green-200",
   },
+  rest: {
+    label: "Rest Day",
+    icon: "🌴",
+    gradient: "from-teal-500 to-cyan-500",
+    soft: "bg-teal-500/10 border-teal-400/20 text-teal-200",
+  },
   other: {
     label: "Goal",
     icon: "◆",
