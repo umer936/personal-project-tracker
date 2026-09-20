@@ -269,17 +269,19 @@ export default function Home() {
 
       {/* Top navigation */}
       <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br from-cyan-500 to-fuchsia-500 text-sm font-bold text-white shadow-lg shadow-fuchsia-500/30">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          {/* Brand */}
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-cyan-500 to-fuchsia-500 text-sm font-bold text-white shadow-lg shadow-fuchsia-500/30">
               R
             </div>
-            <div>
-              <p className="text-sm font-semibold text-white">Rhythm</p>
-              <p className="text-[11px] text-slate-500">Personal planner</p>
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-sm font-semibold text-white">Rhythm</p>
+              <p className="hidden text-[11px] text-slate-500 sm:block">Personal planner</p>
             </div>
           </div>
 
+          {/* Tabs — centered */}
           <nav className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1">
             {(["goals", "outreach"] as Tab[]).map((t) => (
               <button
@@ -287,34 +289,44 @@ export default function Home() {
                 type="button"
                 onClick={() => setTab(t)}
                 className={cn(
-                  "rounded-full px-4 py-1.5 text-sm font-medium capitalize transition",
-                  tab === t ? "bg-white/10 text-white shadow-sm" : "text-slate-400 hover:text-slate-200",
+                  "relative rounded-full px-3 py-1.5 text-sm font-medium capitalize transition sm:px-4",
+                  tab === t
+                    ? "bg-linear-to-r from-cyan-500/20 to-fuchsia-500/20 text-white shadow-sm ring-1 ring-white/10"
+                    : "text-slate-400 hover:text-slate-200",
                 )}
               >
                 {t}
                 {t === "outreach" && needsAttention > 0 && (
-                  <span className="ml-1.5 rounded-full bg-rose-500/80 px-1.5 text-[10px] text-white">{needsAttention}</span>
+                  <span className="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-rose-500/90 px-1 text-[10px] font-semibold text-white">
+                    {needsAttention}
+                  </span>
                 )}
               </button>
             ))}
           </nav>
 
-          <button
-            type="button"
-            onClick={() => (tab === "outreach" ? setShowAddOutreach(true) : setShowAddGoal(true))}
-            className="rounded-full bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-1.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition hover:brightness-110"
-          >
-            + New
-          </button>
+          {/* Actions — grouped right */}
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowData(true)}
+              title="Backup / restore your data"
+              aria-label="Backup and restore data"
+              className="flex h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white"
+            >
+              <span aria-hidden>⚙</span>
+              <span className="hidden sm:inline">Data</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setShowData(true)}
-            title="Backup / restore your data"
-            className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white"
-          >
-            ⚙ Data
-          </button>
+            <button
+              type="button"
+              onClick={() => (tab === "outreach" ? setShowAddOutreach(true) : setShowAddGoal(true))}
+              className="flex h-9 items-center gap-1.5 rounded-full bg-linear-to-r from-cyan-500 to-fuchsia-500 px-3.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition hover:brightness-110 sm:px-4"
+            >
+              <span aria-hidden className="text-base leading-none">+</span>
+              <span className="hidden sm:inline">{tab === "outreach" ? "New contact" : "New goal"}</span>
+            </button>
+          </div>
         </div>
       </header>
 
