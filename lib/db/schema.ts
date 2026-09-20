@@ -1,47 +1,57 @@
-// Domain model for the Task Rhythm Planner.
+// Domain model for the Rhythm planner.
 // Data is persisted in data/database.json via the server actions in ./actions.ts.
 
-export type TaskType = "video" | "prayer" | "exercise" | "outreach" | "admin";
+// ---------- Goals (life-improvement tracker) ----------
 
-export type TaskStatus = "planned" | "in-progress" | "waiting" | "done" | "postponed";
+export type GoalCategory = "prayer" | "exercise" | "stretch" | "reading" | "video" | "other";
 
-export type TaskCadence = "one-off" | "daily" | "weekly" | "monthly";
+// How a goal is measured:
+// - "daily":   do it N times per day, every day of the month (prayers: 5/day)
+// - "count":   do it N times per month (exercise 3x, stretch 3x, reading 1 book)
+// - "project": a monthly deliverable with steps; paced against the calendar (YouTube video)
+export type GoalType = "daily" | "count" | "project";
 
-export type TaskSubtask = {
+export type GoalStep = {
   id: string;
   title: string;
-  note: string;
   completed: boolean;
 };
 
-export type MonthlyProgress = {
-  target: number;
-  completed: number;
+// Per-month state for count/project goals.
+export type MonthState = {
+  count?: number; // "count" goals: completions logged this month
+  steps?: GoalStep[]; // "project" goals: pipeline steps for this month
 };
 
-export type Task = {
+export type Goal = {
   id: string;
   title: string;
-  type: TaskType;
-  status: TaskStatus;
-  tags: string[];
-  start: string; // YYYY-MM-DD
-  end: string; // YYYY-MM-DD
-  cadence: TaskCadence;
-  targetPerMonth: number;
-  monthlyProgress: Record<string, MonthlyProgress>;
+  category: GoalCategory;
+  type: GoalType;
+
+  // "daily"
+  perDay?: number; // e.g. 5 prayers
+
+  // "count"
+  monthlyTarget?: number; // e.g. 3 sessions, 1 book
+  unit?: string; // "sessions" | "books" | ...
+
+  // "project"
+  stepTemplate?: string[]; // default steps applied to each month
+
+  // Progress storage
+  dailyLog: Record<string, number>; // "YYYY-MM-DD" -> completions that day (daily goals)
+  months: Record<string, MonthState>; // "YYYY-MM" -> per-month state (count/project goals)
+
   notes: string;
-  subtasks: TaskSubtask[];
 };
 
-export type InboxOwner = "me" | "them";
+// ---------- Outreach (contact / follow-up pipeline) ----------
 
 export type OutreachChannel = "email" | "text" | "call" | "dm" | "meet";
 
-// Pipeline stage for a contact/follow-up.
 export type OutreachStage = "todo" | "waiting" | "done";
 
-// A single logged interaction with a contact.
 export type OutreachTouch = {
   date: string; // YYYY-MM-DD
   note: string;
@@ -61,6 +71,6 @@ export type OutreachItem = {
 
 export type DatabaseFile = {
   version: number;
-  tasks: Task[];
+  goals: Goal[];
   outreachItems: OutreachItem[];
 };

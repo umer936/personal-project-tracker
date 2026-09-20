@@ -5,18 +5,19 @@ import path from "node:path";
 import { revalidatePath } from "next/cache";
 import type {
   DatabaseFile,
+  Goal,
+  GoalCategory,
+  GoalStep,
+  GoalType,
+  MonthState,
   OutreachChannel,
   OutreachItem,
   OutreachStage,
-  Task,
-  TaskCadence,
-  TaskStatus,
-  TaskType,
 } from "@/lib/db/schema";
 
 const DATABASE_FILE_PATH = path.join(process.cwd(), "data", "database.json");
 
-// Backfill any legacy outreach records (owner/done) into the new pipeline shape.
+// Backfill any legacy outreach records (owner/done) into the pipeline shape.
 function normalizeOutreach(raw: Record<string, unknown>): OutreachItem {
   const legacyOwner = raw.owner as string | undefined;
   const legacyDone = raw.done as boolean | undefined;
@@ -36,9 +37,26 @@ function normalizeOutreach(raw: Record<string, unknown>): OutreachItem {
   };
 }
 
+function normalizeGoal(raw: Record<string, unknown>): Goal {
+  return {
+    id: String(raw.id ?? ""),
+    title: String(raw.title ?? "Untitled goal"),
+    category: (raw.category as GoalCategory) ?? "other",
+    type: (raw.type as GoalType) ?? "count",
+    perDay: raw.perDay as number | undefined,
+    monthlyTarget: raw.monthlyTarget as number | undefined,
+    unit: raw.unit as string | undefined,
+    stepTemplate: Array.isArray(raw.stepTemplate) ? (raw.stepTemplate as string[]) : undefined,
+    dailyLog: (raw.dailyLog as Record<string, number>) ?? {},
+    months: (raw.months as Record<string, MonthState>) ?? {},
+    notes: String(raw.notes ?? ""),
+  };
+}
+
 async function readDatabase(): Promise<DatabaseFile> {
   const raw = await fs.readFile(DATABASE_FILE_PATH, "utf8");
   const parsed = JSON.parse(raw) as DatabaseFile;
+  parsed.goals = (parsed.goals ?? []).map((g) => normalizeGoal(g as unknown as Record<string, unknown>));
   parsed.outreachItems = (parsed.outreachItems ?? []).map((item) =>
     normalizeOutreach(item as unknown as Record<string, unknown>),
   );
@@ -65,11 +83,19 @@ function todayString() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
+// Deterministic id for a project step so the client and server always agree.
+function stepIdFor(title: string) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 // ---------- Reads ----------
 
-export async function getTasks() {
+export async function getGoals() {
   const database = await readDatabase();
-  return database.tasks;
+  return database.goals;
 }
 
 export async function getOutreachItems() {
@@ -77,115 +103,93 @@ export async function getOutreachItems() {
   return database.outreachItems;
 }
 
-// ---------- Task mutations ----------
+// ---------- Goal mutations ----------
 
-export async function createTask(input: {
+function mapGoal(database: DatabaseFile, goalId: string, fn: (goal: Goal) => Goal) {
+  database.goals = database.goals.map((g) => (g.id === goalId ? fn(g) : g));
+}
+
+// Set the completion count for a specific day (used by daily goals like prayer).
+export async function setDailyCount(goalId: string, dateKey: string, count: number) {
+  const database = await readDatabase();
+  mapGoal(database, goalId, (goal) => {
+    const max = goal.perDay ?? 1;
+    const clamped = Math.max(0, Math.min(max, count));
+    const dailyLog = { ...goal.dailyLog };
+    if (clamped === 0) delete dailyLog[dateKey];
+    else dailyLog[dateKey] = clamped;
+    return { ...goal, dailyLog };
+  });
+  await writeDatabase(database);
+}
+
+// Adjust a count goal's monthly total (exercise/stretch/reading).
+export async function adjustMonthCount(goalId: string, monthKey: string, delta: number) {
+  const database = await readDatabase();
+  mapGoal(database, goalId, (goal) => {
+    const state = goal.months[monthKey] ?? {};
+    const next = Math.max(0, (state.count ?? 0) + delta);
+    return { ...goal, months: { ...goal.months, [monthKey]: { ...state, count: next } } };
+  });
+  await writeDatabase(database);
+}
+
+// Toggle a project step for a given month (YouTube pipeline). Steps are
+// initialised from the goal's template the first time a month is touched.
+export async function toggleProjectStep(goalId: string, monthKey: string, stepId: string) {
+  const database = await readDatabase();
+  mapGoal(database, goalId, (goal) => {
+    const template = goal.stepTemplate ?? [];
+    const existing = goal.months[monthKey]?.steps;
+    const steps: GoalStep[] =
+      existing ??
+      template.map((title) => ({ id: stepIdFor(title), title, completed: false }));
+    const nextSteps = steps.map((s) => (s.id === stepId ? { ...s, completed: !s.completed } : s));
+    return { ...goal, months: { ...goal.months, [monthKey]: { ...goal.months[monthKey], steps: nextSteps } } };
+  });
+  await writeDatabase(database);
+}
+
+export async function updateGoalNotes(goalId: string, notes: string) {
+  const database = await readDatabase();
+  mapGoal(database, goalId, (goal) => ({ ...goal, notes }));
+  await writeDatabase(database);
+}
+
+export async function createGoal(input: {
   title: string;
-  type: TaskType;
-  cadence: TaskCadence;
-  tags?: string[];
-  targetPerMonth?: number;
-  start?: string;
-  end?: string;
+  category: GoalCategory;
+  type: GoalType;
+  perDay?: number;
+  monthlyTarget?: number;
+  unit?: string;
+  stepTemplate?: string[];
 }) {
   const database = await readDatabase();
-  const today = todayString();
-  const monthKey = today.slice(0, 7);
-  const target = input.targetPerMonth ?? 1;
-
-  const task: Task = {
+  const goal: Goal = {
     id: slugify(input.title),
-    title: input.title.trim() || "Untitled task",
+    title: input.title.trim() || "New goal",
+    category: input.category,
     type: input.type,
-    status: "planned",
-    tags: input.tags?.filter(Boolean) ?? [],
-    start: input.start ?? today,
-    end: input.end ?? today,
-    cadence: input.cadence,
-    targetPerMonth: target,
-    monthlyProgress: { [monthKey]: { target, completed: 0 } },
+    perDay: input.type === "daily" ? input.perDay ?? 1 : undefined,
+    monthlyTarget: input.type === "count" ? input.monthlyTarget ?? 1 : undefined,
+    unit: input.type === "count" ? input.unit ?? "times" : undefined,
+    stepTemplate:
+      input.type === "project"
+        ? input.stepTemplate ?? ["Idea", "Draft", "Finish"]
+        : undefined,
+    dailyLog: {},
+    months: {},
     notes: "",
-    subtasks: [],
   };
-
-  database.tasks = [task, ...database.tasks];
+  database.goals = [...database.goals, goal];
   await writeDatabase(database);
-  return task;
+  return goal;
 }
 
-export async function deleteTask(taskId: string) {
+export async function deleteGoal(goalId: string) {
   const database = await readDatabase();
-  database.tasks = database.tasks.filter((task) => task.id !== taskId);
-  await writeDatabase(database);
-}
-
-export async function updateTaskStatus(taskId: string, status: TaskStatus) {
-  const database = await readDatabase();
-  database.tasks = database.tasks.map((task) => (task.id === taskId ? { ...task, status } : task));
-  await writeDatabase(database);
-}
-
-export async function updateTaskNotes(taskId: string, notes: string) {
-  const database = await readDatabase();
-  database.tasks = database.tasks.map((task) => (task.id === taskId ? { ...task, notes } : task));
-  await writeDatabase(database);
-}
-
-export async function updateTaskTitle(taskId: string, title: string) {
-  const database = await readDatabase();
-  database.tasks = database.tasks.map((task) =>
-    task.id === taskId ? { ...task, title: title.trim() || task.title } : task,
-  );
-  await writeDatabase(database);
-}
-
-export async function updateSubtask(taskId: string, subtaskId: string, completed: boolean) {
-  const database = await readDatabase();
-  database.tasks = database.tasks.map((task) =>
-    task.id === taskId
-      ? {
-          ...task,
-          subtasks: task.subtasks.map((subtask) =>
-            subtask.id === subtaskId ? { ...subtask, completed } : subtask,
-          ),
-        }
-      : task,
-  );
-  await writeDatabase(database);
-}
-
-export async function addSubtask(taskId: string, title: string) {
-  const database = await readDatabase();
-  database.tasks = database.tasks.map((task) =>
-    task.id === taskId
-      ? {
-          ...task,
-          subtasks: [
-            ...task.subtasks,
-            { id: slugify(title), title: title.trim() || "New step", note: "", completed: false },
-          ],
-        }
-      : task,
-  );
-  await writeDatabase(database);
-}
-
-// Adjust this month's completed count for a task (used to log progress).
-export async function adjustMonthlyProgress(taskId: string, delta: number) {
-  const database = await readDatabase();
-  const monthKey = todayString().slice(0, 7);
-  database.tasks = database.tasks.map((task) => {
-    if (task.id !== taskId) return task;
-    const current = task.monthlyProgress[monthKey] ?? {
-      target: task.targetPerMonth,
-      completed: 0,
-    };
-    const completed = Math.max(0, Math.min(current.target, current.completed + delta));
-    return {
-      ...task,
-      monthlyProgress: { ...task.monthlyProgress, [monthKey]: { ...current, completed } },
-    };
-  });
+  database.goals = database.goals.filter((g) => g.id !== goalId);
   await writeDatabase(database);
 }
 

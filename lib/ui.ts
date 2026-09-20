@@ -1,4 +1,4 @@
-import type { OutreachChannel, TaskStatus, TaskType } from "@/lib/db/schema";
+import type { GoalCategory, OutreachChannel } from "@/lib/db/schema";
 
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -27,16 +27,42 @@ export function toDateString(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export function monthKey(date: Date) {
+export function todayKey() {
+  return toDateString(startOfDay(new Date()));
+}
+
+// ---------- Month helpers ----------
+
+export function monthKeyOf(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
 }
 
 export function currentMonthKey() {
-  return monthKey(new Date());
+  return monthKeyOf(new Date());
 }
 
-export function formatDate(date: Date) {
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date);
+// Shift a "YYYY-MM" key by N months.
+export function addMonth(monthKey: string, delta: number) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const date = new Date(year, month - 1 + delta, 1);
+  return monthKeyOf(date);
+}
+
+export function daysInMonth(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Date(year, month, 0).getDate();
+}
+
+// "2026-09-04" style key for a given month + day-of-month.
+export function dayKey(monthKey: string, day: number) {
+  return `${monthKey}-${pad(day)}`;
+}
+
+export function monthLabel(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(
+    new Date(year, month - 1, 1),
+  );
 }
 
 export function formatLongDate(date: Date) {
@@ -47,8 +73,8 @@ export function formatLongDate(date: Date) {
   }).format(date);
 }
 
-export function formatMonth(date: Date) {
-  return new Intl.DateTimeFormat("en", { month: "short", year: "numeric" }).format(date);
+export function formatShortDate(dateString: string) {
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(parseDate(dateString));
 }
 
 export function daysSince(dateString: string) {
@@ -65,9 +91,55 @@ export function daysUntil(dateString: string) {
   return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-export function formatShortDate(dateString: string) {
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(parseDate(dateString));
-}
+// ---------- Category metadata ----------
+
+export type CategoryMeta = {
+  label: string;
+  icon: string;
+  gradient: string; // tailwind gradient stops
+  soft: string; // pill styling
+};
+
+export const CATEGORY_META: Record<GoalCategory, CategoryMeta> = {
+  prayer: {
+    label: "Prayer",
+    icon: "☾",
+    gradient: "from-emerald-500 to-teal-500",
+    soft: "bg-emerald-500/10 border-emerald-400/20 text-emerald-200",
+  },
+  exercise: {
+    label: "Exercise",
+    icon: "⚡",
+    gradient: "from-sky-500 to-indigo-500",
+    soft: "bg-sky-500/10 border-sky-400/20 text-sky-200",
+  },
+  stretch: {
+    label: "Stretch",
+    icon: "🧘",
+    gradient: "from-violet-500 to-purple-500",
+    soft: "bg-violet-500/10 border-violet-400/20 text-violet-200",
+  },
+  reading: {
+    label: "Reading",
+    icon: "📖",
+    gradient: "from-amber-500 to-orange-500",
+    soft: "bg-amber-500/10 border-amber-400/20 text-amber-200",
+  },
+  video: {
+    label: "YouTube",
+    icon: "▶",
+    gradient: "from-rose-500 to-pink-500",
+    soft: "bg-rose-500/10 border-rose-400/20 text-rose-200",
+  },
+  other: {
+    label: "Goal",
+    icon: "◆",
+    gradient: "from-slate-500 to-slate-400",
+    soft: "bg-slate-500/10 border-slate-400/20 text-slate-300",
+  },
+};
+
+// ---------- Outreach channel metadata ----------
 
 export type ChannelMeta = { label: string; icon: string };
 
@@ -77,86 +149,4 @@ export const CHANNEL_META: Record<OutreachChannel, ChannelMeta> = {
   call: { label: "Call", icon: "☎" },
   dm: { label: "DM", icon: "@" },
   meet: { label: "Meet", icon: "🤝" },
-};
-
-export type TypeMeta = {
-  label: string;
-  icon: string;
-  accent: string; // solid text/border accent color
-  gradient: string; // tailwind gradient stops
-  soft: string; // soft background tint
-  description: string;
-};
-
-export const TYPE_META: Record<TaskType, TypeMeta> = {
-  video: {
-    label: "YouTube",
-    icon: "▶",
-    accent: "text-amber-300",
-    gradient: "from-amber-500 to-orange-500",
-    soft: "bg-amber-500/10 border-amber-400/20 text-amber-200",
-    description: "Idea → script → record → edit → publish",
-  },
-  prayer: {
-    label: "Prayer",
-    icon: "☾",
-    accent: "text-emerald-300",
-    gradient: "from-emerald-500 to-teal-500",
-    soft: "bg-emerald-500/10 border-emerald-400/20 text-emerald-200",
-    description: "Daily rhythm and recovery",
-  },
-  exercise: {
-    label: "Exercise",
-    icon: "⚡",
-    accent: "text-sky-300",
-    gradient: "from-sky-500 to-indigo-500",
-    soft: "bg-sky-500/10 border-sky-400/20 text-sky-200",
-    description: "Monthly target and streak",
-  },
-  outreach: {
-    label: "Outreach",
-    icon: "✉",
-    accent: "text-fuchsia-300",
-    gradient: "from-fuchsia-500 to-pink-500",
-    soft: "bg-fuchsia-500/10 border-fuchsia-400/20 text-fuchsia-200",
-    description: "Inbox pipeline and follow-up",
-  },
-  admin: {
-    label: "Admin",
-    icon: "◆",
-    accent: "text-violet-300",
-    gradient: "from-violet-500 to-purple-500",
-    soft: "bg-violet-500/10 border-violet-400/20 text-violet-200",
-    description: "Docs, notes, and cleanup",
-  },
-};
-
-export type StatusMeta = { label: string; soft: string; dot: string };
-
-export const STATUS_META: Record<TaskStatus, StatusMeta> = {
-  planned: {
-    label: "Planned",
-    soft: "bg-slate-500/10 border-slate-400/20 text-slate-300",
-    dot: "bg-slate-400",
-  },
-  "in-progress": {
-    label: "In progress",
-    soft: "bg-cyan-500/10 border-cyan-400/20 text-cyan-200",
-    dot: "bg-cyan-400",
-  },
-  waiting: {
-    label: "Waiting",
-    soft: "bg-fuchsia-500/10 border-fuchsia-400/20 text-fuchsia-200",
-    dot: "bg-fuchsia-400",
-  },
-  done: {
-    label: "Done",
-    soft: "bg-emerald-500/10 border-emerald-400/20 text-emerald-200",
-    dot: "bg-emerald-400",
-  },
-  postponed: {
-    label: "Postponed",
-    soft: "bg-amber-500/10 border-amber-400/20 text-amber-200",
-    dot: "bg-amber-400",
-  },
 };

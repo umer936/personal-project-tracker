@@ -1,94 +1,123 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type {
+  Goal,
+  GoalCategory,
+  GoalStep,
+  GoalType,
   OutreachChannel,
   OutreachItem,
   OutreachStage,
-  Task,
-  TaskCadence,
-  TaskStatus,
-  TaskType,
 } from "@/lib/db/schema";
 import {
-  addSubtask,
-  adjustMonthlyProgress,
+  adjustMonthCount,
+  createGoal,
   createOutreach,
-  createTask,
+  deleteGoal,
   deleteOutreach,
-  deleteTask,
+  getGoals,
   getOutreachItems,
-  getTasks,
   logOutreachTouch,
+  setDailyCount,
   setOutreachStage,
   snoozeOutreach,
+  toggleProjectStep,
   updateOutreachFields,
-  updateSubtask,
-  updateTaskNotes,
-  updateTaskStatus,
-  updateTaskTitle,
 } from "@/lib/db/actions";
 import {
+  CATEGORY_META,
   CHANNEL_META,
-  STATUS_META,
-  TYPE_META,
+  addMonth,
   cn,
   currentMonthKey,
+  dayKey,
+  daysInMonth,
   daysSince,
   daysUntil,
   formatLongDate,
   formatShortDate,
+  monthLabel,
   startOfDay,
+  todayKey,
 } from "@/lib/ui";
-import { Timeline } from "./components/Timeline";
 
-type Tab = "overview" | "timeline" | "outreach";
+type Tab = "goals" | "outreach";
 
-const ALL_TYPES: TaskType[] = ["video", "prayer", "exercise", "outreach", "admin"];
-const STATUS_ORDER: TaskStatus[] = ["planned", "in-progress", "waiting", "postponed", "done"];
+const CATEGORIES: GoalCategory[] = ["prayer", "exercise", "stretch", "reading", "video", "other"];
 
-function monthPercent(task: Task) {
-  const mp = task.monthlyProgress[currentMonthKey()];
-  if (!mp || mp.target === 0) return 0;
-  return Math.round((mp.completed / mp.target) * 100);
+// ---------- Goal math ----------
+
+function stepIdFor(title: string) {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-function subtaskPercent(task: Task) {
-  if (task.subtasks.length === 0) return 0;
-  const done = task.subtasks.filter((s) => s.completed).length;
-  return Math.round((done / task.subtasks.length) * 100);
+function dailyDone(goal: Goal, monthKey: string) {
+  return Object.entries(goal.dailyLog).reduce(
+    (sum, [k, v]) => (k.startsWith(monthKey) ? sum + v : sum),
+    0,
+  );
+}
+
+function dailyTarget(goal: Goal, monthKey: string) {
+  return daysInMonth(monthKey) * (goal.perDay ?? 1);
+}
+
+function countDone(goal: Goal, monthKey: string) {
+  return goal.months[monthKey]?.count ?? 0;
+}
+
+function projectSteps(goal: Goal, monthKey: string): GoalStep[] {
+  return (
+    goal.months[monthKey]?.steps ??
+    (goal.stepTemplate ?? []).map((title) => ({ id: stepIdFor(title), title, completed: false }))
+  );
+}
+
+// Fraction of the selected month that has elapsed (for pacing).
+function monthElapsedFraction(monthKey: string) {
+  const cur = currentMonthKey();
+  if (monthKey < cur) return 1;
+  if (monthKey > cur) return 0;
+  const today = new Date();
+  return today.getDate() / daysInMonth(monthKey);
+}
+
+// A goal's completion percent for the month.
+function goalPercent(goal: Goal, monthKey: string) {
+  if (goal.type === "daily") {
+    const t = dailyTarget(goal, monthKey);
+    return t === 0 ? 0 : Math.round((dailyDone(goal, monthKey) / t) * 100);
+  }
+  if (goal.type === "count") {
+    const t = goal.monthlyTarget ?? 1;
+    return t === 0 ? 0 : Math.min(100, Math.round((countDone(goal, monthKey) / t) * 100));
+  }
+  const steps = projectSteps(goal, monthKey);
+  if (steps.length === 0) return 0;
+  return Math.round((steps.filter((s) => s.completed).length / steps.length) * 100);
+}
+
+// Whether a goal is keeping pace with the elapsed month.
+function goalOnPace(goal: Goal, monthKey: string) {
+  const elapsed = monthElapsedFraction(monthKey);
+  if (goal.type === "daily") {
+    // expected completions so far = perDay * elapsedDays
+    const elapsedDays =
+      monthKey < currentMonthKey()
+        ? daysInMonth(monthKey)
+        : monthKey > currentMonthKey()
+          ? 0
+          : new Date().getDate();
+    const expected = (goal.perDay ?? 1) * elapsedDays;
+    return dailyDone(goal, monthKey) >= expected;
+  }
+  const target = goal.type === "count" ? goal.monthlyTarget ?? 1 : projectSteps(goal, monthKey).length;
+  const done = goal.type === "count" ? countDone(goal, monthKey) : projectSteps(goal, monthKey).filter((s) => s.completed).length;
+  return done >= Math.ceil(target * elapsed);
 }
 
 // ---------- Small building blocks ----------
-
-function ProgressRing({ percent, gradientId }: { percent: number; gradientId: string }) {
-  const radius = 26;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (percent / 100) * circumference;
-  return (
-    <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#22d3ee" />
-          <stop offset="100%" stopColor="#a855f7" />
-        </linearGradient>
-      </defs>
-      <circle cx="32" cy="32" r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
-      <circle
-        cx="32"
-        cy="32"
-        r={radius}
-        fill="none"
-        stroke={`url(#${gradientId})`}
-        strokeWidth="6"
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        className="transition-[stroke-dashoffset] duration-500"
-      />
-    </svg>
-  );
-}
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -100,8 +129,8 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
   );
 }
 
-function TypeBadge({ type }: { type: TaskType }) {
-  const meta = TYPE_META[type];
+function CategoryBadge({ category }: { category: GoalCategory }) {
+  const meta = CATEGORY_META[category];
   return (
     <span className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium", meta.soft)}>
       <span>{meta.icon}</span>
@@ -110,13 +139,24 @@ function TypeBadge({ type }: { type: TaskType }) {
   );
 }
 
-function StatusBadge({ status }: { status: TaskStatus }) {
-  const meta = STATUS_META[status];
+function PaceChip({ onPace }: { onPace: boolean }) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium", meta.soft)}>
-      <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
-      {meta.label}
+    <span
+      className={cn(
+        "rounded-full px-2 py-0.5 text-[10px] font-medium",
+        onPace ? "bg-emerald-500/15 text-emerald-200" : "bg-amber-500/15 text-amber-200",
+      )}
+    >
+      {onPace ? "on pace" : "behind"}
     </span>
+  );
+}
+
+function Bar({ percent, gradient }: { percent: number; gradient: string }) {
+  return (
+    <div className="h-2 overflow-hidden rounded-full bg-white/10">
+      <div className={cn("h-full rounded-full bg-linear-to-r", gradient)} style={{ width: `${Math.min(100, percent)}%` }} />
+    </div>
   );
 }
 
@@ -124,96 +164,70 @@ function StatusBadge({ status }: { status: TaskStatus }) {
 
 export default function Home() {
   const [isPending, startTransition] = useTransition();
-  const [tab, setTab] = useState<Tab>("overview");
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tab, setTab] = useState<Tab>("goals");
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [outreach, setOutreach] = useState<OutreachItem[]>([]);
-  const [selectedTaskId, setSelectedTaskId] = useState<string>("");
-  const [selectedTypes, setSelectedTypes] = useState<TaskType[]>(ALL_TYPES);
-  const [selectedTag, setSelectedTag] = useState<string>("all");
-  const [showAddTask, setShowAddTask] = useState(false);
-  const [showAddOutreach, setShowAddOutreach] = useState(false);
+  const [monthKey, setMonthKey] = useState<string>(currentMonthKey);
   const [loaded, setLoaded] = useState(false);
+  const [showAddGoal, setShowAddGoal] = useState(false);
+  const [showAddOutreach, setShowAddOutreach] = useState(false);
 
-  const reloadTasks = () => getTasks().then(setTasks);
+  const reloadGoals = () => getGoals().then(setGoals);
   const reloadOutreach = () => getOutreachItems().then(setOutreach);
 
   useEffect(() => {
     startTransition(async () => {
-      const [t, o] = await Promise.all([getTasks(), getOutreachItems()]);
-      setTasks(t);
+      const [g, o] = await Promise.all([getGoals(), getOutreachItems()]);
+      setGoals(g);
       setOutreach(o);
       setLoaded(true);
     });
   }, []);
 
-  const allTags = useMemo(
-    () => Array.from(new Set(tasks.flatMap((t) => t.tags))).sort((a, b) => a.localeCompare(b)),
-    [tasks],
-  );
-
-  const visibleTasks = useMemo(
-    () =>
-      tasks
-        .filter((t) => selectedTypes.includes(t.type))
-        .filter((t) => selectedTag === "all" || t.tags.includes(selectedTag))
-        .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)),
-    [tasks, selectedTypes, selectedTag],
-  );
-
-  const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
-
-  // Outreach pipeline buckets.
-  const isFollowUpDue = (o: OutreachItem) => o.followUpOn !== null && daysUntil(o.followUpOn) <= 0;
-  const outreachUrgency = (o: OutreachItem) => {
-    if (o.followUpOn) return daysUntil(o.followUpOn); // earlier (more negative) = more urgent
-    return daysSince(o.lastAction) * -1 + 999; // no follow-up date → lower priority
-  };
-  const sortOutreach = (list: OutreachItem[]) =>
-    [...list].sort((a, b) => outreachUrgency(a) - outreachUrgency(b));
-
-  const todoItems = sortOutreach(outreach.filter((o) => o.stage === "todo"));
-  const waitingItems = sortOutreach(outreach.filter((o) => o.stage === "waiting"));
-  const doneItems = outreach.filter((o) => o.stage === "done");
-  const followUpDue = sortOutreach(
-    outreach.filter((o) => o.stage !== "done" && isFollowUpDue(o)),
-  );
-  const needsAttention = todoItems.length + followUpDue.length;
-
-  const activeCount = tasks.filter((t) => t.status !== "done").length;
-  const avgMonthly =
-    tasks.length === 0 ? 0 : Math.round(tasks.reduce((sum, t) => sum + monthPercent(t), 0) / tasks.length);
-
-  const focusTasks = visibleTasks.filter((t) => t.status === "in-progress" || t.status === "waiting");
-
-  // ---------- Mutations ----------
   const withReload = (fn: () => Promise<unknown>, reload: () => Promise<void>) =>
     startTransition(async () => {
       await fn();
       await reload();
     });
 
-  const handleStatus = (id: string, status: TaskStatus) =>
-    withReload(() => updateTaskStatus(id, status), reloadTasks);
-  const handleSubtask = (taskId: string, subtaskId: string, completed: boolean) =>
-    withReload(() => updateSubtask(taskId, subtaskId, completed), reloadTasks);
-  const handleProgress = (id: string, delta: number) =>
-    withReload(() => adjustMonthlyProgress(id, delta), reloadTasks);
-  const handleDeleteTask = (id: string) => {
-    setSelectedTaskId("");
-    withReload(() => deleteTask(id), reloadTasks);
-  };
+  // Goal handlers
+  const handleSetDay = (goalId: string, dateKey: string, count: number) =>
+    withReload(() => setDailyCount(goalId, dateKey, count), reloadGoals);
+  const handleCount = (goalId: string, delta: number) =>
+    withReload(() => adjustMonthCount(goalId, monthKey, delta), reloadGoals);
+  const handleStep = (goalId: string, stepId: string) =>
+    withReload(() => toggleProjectStep(goalId, monthKey, stepId), reloadGoals);
+  const handleDeleteGoal = (goalId: string) => withReload(() => deleteGoal(goalId), reloadGoals);
+
+  // Outreach handlers
+  const isFollowUpDue = (o: OutreachItem) => o.followUpOn !== null && daysUntil(o.followUpOn) <= 0;
+  const outreachUrgency = (o: OutreachItem) =>
+    o.followUpOn ? daysUntil(o.followUpOn) : daysSince(o.lastAction) * -1 + 999;
+  const sortOutreach = (list: OutreachItem[]) => [...list].sort((a, b) => outreachUrgency(a) - outreachUrgency(b));
+  const todoItems = sortOutreach(outreach.filter((o) => o.stage === "todo"));
+  const waitingItems = sortOutreach(outreach.filter((o) => o.stage === "waiting"));
+  const doneItems = outreach.filter((o) => o.stage === "done");
+  const followUpDue = sortOutreach(outreach.filter((o) => o.stage !== "done" && isFollowUpDue(o)));
+  const needsAttention = todoItems.length + followUpDue.length;
+
   const handleStage = (id: string, stage: OutreachStage) =>
     withReload(() => setOutreachStage(id, stage), reloadOutreach);
   const handleTouch = (id: string, note?: string, followUpInDays?: number) =>
     withReload(() => logOutreachTouch(id, { note, followUpInDays }), reloadOutreach);
-  const handleSnooze = (id: string, days: number) =>
-    withReload(() => snoozeOutreach(id, days), reloadOutreach);
+  const handleSnooze = (id: string, days: number) => withReload(() => snoozeOutreach(id, days), reloadOutreach);
   const handleUpdateOutreach = (
     id: string,
     patch: Partial<Pick<OutreachItem, "name" | "topic" | "channel" | "nextAction" | "followUpOn">>,
   ) => withReload(() => updateOutreachFields(id, patch), reloadOutreach);
   const handleDeleteOutreach = (id: string) => withReload(() => deleteOutreach(id), reloadOutreach);
 
+  // Goal-derived stats for the selected month
+  const prayer = goals.find((g) => g.category === "prayer");
+  const prayerPercent = prayer ? goalPercent(prayer, monthKey || currentMonthKey()) : 0;
+  const todayPrayers = prayer ? prayer.dailyLog[todayKey()] ?? 0 : 0;
+  const onPaceCount = goals.filter((g) => goalOnPace(g, monthKey || currentMonthKey())).length;
+  const isCurrentMonth = monthKey === currentMonthKey();
+  const daysLeft = isCurrentMonth && monthKey ? daysInMonth(monthKey) - new Date().getDate() : 0;
   const today = loaded ? startOfDay(new Date()) : null;
 
   return (
@@ -238,8 +252,8 @@ export default function Home() {
             </div>
           </div>
 
-          <nav className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 sm:flex">
-            {(["overview", "timeline", "outreach"] as Tab[]).map((t) => (
+          <nav className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1">
+            {(["goals", "outreach"] as Tab[]).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -259,242 +273,80 @@ export default function Home() {
 
           <button
             type="button"
-            onClick={() => (tab === "outreach" ? setShowAddOutreach(true) : setShowAddTask(true))}
+            onClick={() => (tab === "outreach" ? setShowAddOutreach(true) : setShowAddGoal(true))}
             className="rounded-full bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-1.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition hover:brightness-110"
           >
             + New
           </button>
         </div>
-
-        {/* Mobile tabs */}
-        <nav className="flex items-center gap-1 overflow-x-auto px-4 pb-3 sm:hidden">
-          {(["overview", "timeline", "outreach"] as Tab[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={cn(
-                "whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium capitalize transition",
-                tab === t ? "bg-white/10 text-white" : "text-slate-400",
-              )}
-            >
-              {t}
-            </button>
-          ))}
-        </nav>
       </header>
 
       <div className="relative mx-auto max-w-6xl px-4 py-8 sm:px-6">
         {!loaded && <p className="text-sm text-slate-500">Loading your planner…</p>}
 
-        {loaded && tab === "overview" && (
+        {loaded && tab === "goals" && monthKey && (
           <div className="animate-fade-in space-y-8">
-            {/* Hero */}
-            <section>
-              <p className="text-sm text-slate-400">{today ? formatLongDate(today) : ""}</p>
-              <h1 className="mt-1 text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                Keep the rhythm going.
-              </h1>
+            {/* Hero + month switcher */}
+            <section className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-sm text-slate-400">{today ? formatLongDate(today) : ""}</p>
+                <h1 className="mt-1 text-3xl font-bold tracking-tight text-white sm:text-4xl">Life goals</h1>
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setMonthKey(addMonth(monthKey, -1))} className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10">
+                  ‹
+                </button>
+                <div className="min-w-40 text-center text-sm font-semibold text-white">{monthLabel(monthKey)}</div>
+                <button type="button" onClick={() => setMonthKey(addMonth(monthKey, 1))} className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10">
+                  ›
+                </button>
+                {!isCurrentMonth && (
+                  <button type="button" onClick={() => setMonthKey(currentMonthKey())} className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-100 transition hover:bg-cyan-500/20">
+                    This month
+                  </button>
+                )}
+              </div>
             </section>
 
             {/* Stats */}
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard label="Active tasks" value={String(activeCount)} hint={`${tasks.length} total`} />
-              <StatCard label="Monthly progress" value={`${avgMonthly}%`} hint="avg across tasks" />
-              <StatCard label="Your move" value={String(todoItems.length)} hint="contacts to reach out to" />
-              <StatCard
-                label="Follow-ups due"
-                value={String(followUpDue.length)}
-                hint={followUpDue.length > 0 ? "needs a nudge" : "all scheduled"}
-              />
+              <StatCard label="Prayers this month" value={`${prayerPercent}%`} hint={prayer ? `${dailyDone(prayer, monthKey)} / ${dailyTarget(prayer, monthKey)}` : "—"} />
+              <StatCard label="Today's prayers" value={`${todayPrayers}/${prayer?.perDay ?? 5}`} hint={isCurrentMonth ? "so far today" : "current day"} />
+              <StatCard label="On pace" value={`${onPaceCount}/${goals.length}`} hint="goals keeping up" />
+              <StatCard label="Days left" value={isCurrentMonth ? String(daysLeft) : "—"} hint={isCurrentMonth ? "this month" : monthLabel(monthKey)} />
             </section>
 
-            {/* Today's focus */}
-            {focusTasks.length > 0 && (
-              <section>
-                <h2 className="mb-3 text-lg font-semibold text-white">Today&apos;s focus</h2>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {focusTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4"
-                    >
-                      <div className="relative shrink-0">
-                        <ProgressRing percent={monthPercent(task)} gradientId={`focus-${task.id}`} />
-                        <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white">
-                          {monthPercent(task)}%
-                        </span>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <TypeBadge type={task.type} />
-                        </div>
-                        <p className="mt-1 truncate font-medium text-white">{task.title}</p>
-                        <div className="mt-2 flex gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleProgress(task.id, 1)}
-                            disabled={isPending}
-                            className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20"
-                          >
-                            + Log
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTaskId(task.id)}
-                            className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-200 transition hover:bg-white/10"
-                          >
-                            Open
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Filters */}
-            <section className="flex flex-wrap items-center gap-2">
-              {ALL_TYPES.map((type) => {
-                const active = selectedTypes.includes(type);
-                const meta = TYPE_META[type];
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() =>
-                      setSelectedTypes((cur) =>
-                        cur.includes(type) ? cur.filter((x) => x !== type) : [...cur, type],
-                      )
-                    }
-                    className={cn(
-                      "rounded-full border px-3 py-1 text-xs font-medium transition",
-                      active ? meta.soft : "border-white/10 bg-white/5 text-slate-500 hover:text-slate-300",
-                    )}
-                  >
-                    {meta.icon} {meta.label}
-                  </button>
-                );
-              })}
-              <span className="mx-1 h-4 w-px bg-white/10" />
-              <button
-                type="button"
-                onClick={() => setSelectedTag("all")}
-                className={cn(
-                  "rounded-full border px-3 py-1 text-xs transition",
-                  selectedTag === "all"
-                    ? "border-white/20 bg-white/10 text-white"
-                    : "border-white/10 bg-white/5 text-slate-500 hover:text-slate-300",
-                )}
-              >
-                All tags
-              </button>
-              {allTags.map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => setSelectedTag(tag)}
-                  className={cn(
-                    "rounded-full border px-3 py-1 text-xs transition",
-                    selectedTag === tag
-                      ? "border-white/20 bg-white/10 text-white"
-                      : "border-white/10 bg-white/5 text-slate-500 hover:text-slate-300",
-                  )}
-                >
-                  #{tag}
-                </button>
+            {/* Goal cards */}
+            <section className="grid gap-5 lg:grid-cols-2">
+              {goals.map((goal) => (
+                <GoalCard
+                  key={goal.id}
+                  goal={goal}
+                  monthKey={monthKey}
+                  isCurrentMonth={isCurrentMonth}
+                  isPending={isPending}
+                  onSetDay={handleSetDay}
+                  onCount={handleCount}
+                  onStep={handleStep}
+                  onDelete={handleDeleteGoal}
+                />
               ))}
             </section>
-
-            {/* Task grid */}
-            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {visibleTasks.map((task) => {
-                const meta = TYPE_META[task.type];
-                const mPercent = monthPercent(task);
-                const sPercent = subtaskPercent(task);
-                const mp = task.monthlyProgress[currentMonthKey()];
-                return (
-                  <button
-                    key={task.id}
-                    type="button"
-                    onClick={() => setSelectedTaskId(task.id)}
-                    className="group flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/20 hover:bg-white/[0.06]"
-                  >
-                    <div className="flex items-center justify-between">
-                      <TypeBadge type={task.type} />
-                      <StatusBadge status={task.status} />
-                    </div>
-                    <p className="mt-3 font-semibold text-white">{task.title}</p>
-                    <p className="mt-1 text-xs text-slate-500">{meta.description}</p>
-
-                    <div className="mt-4 space-y-1">
-                      <div className="flex items-center justify-between text-xs text-slate-400">
-                        <span className="capitalize">{task.cadence} target</span>
-                        <span className="font-medium text-slate-200">
-                          {mp ? `${mp.completed}/${mp.target}` : `0/${task.targetPerMonth}`}
-                        </span>
-                      </div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                        <div
-                          className={cn("h-full rounded-full bg-linear-to-r", meta.gradient)}
-                          style={{ width: `${mPercent}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {task.subtasks.length > 0 && (
-                      <p className="mt-3 text-xs text-slate-500">
-                        {task.subtasks.filter((s) => s.completed).length}/{task.subtasks.length} steps · {sPercent}%
-                      </p>
-                    )}
-
-                    {task.tags.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1">
-                        {task.tags.slice(0, 3).map((tag) => (
-                          <span key={tag} className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-400">
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </section>
-          </div>
-        )}
-
-        {loaded && tab === "timeline" && (
-          <div className="animate-fade-in">
-            <Timeline tasks={visibleTasks} selectedTaskId={selectedTaskId} onSelectAction={setSelectedTaskId} />
           </div>
         )}
 
         {loaded && tab === "outreach" && (
           <div className="animate-fade-in space-y-6">
-            {/* Follow-ups due banner */}
             {followUpDue.length > 0 && (
               <section className="rounded-2xl border border-rose-400/30 bg-rose-500/5 p-5">
                 <div className="mb-3 flex items-center gap-2">
                   <span className="text-rose-300">⏰</span>
                   <h2 className="text-sm font-semibold text-rose-200">Follow-ups due</h2>
-                  <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-xs text-rose-200">
-                    {followUpDue.length}
-                  </span>
+                  <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-xs text-rose-200">{followUpDue.length}</span>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {followUpDue.map((item) => (
-                    <OutreachCard
-                      key={item.id}
-                      item={item}
-                      isPending={isPending}
-                      onStage={handleStage}
-                      onTouch={handleTouch}
-                      onSnooze={handleSnooze}
-                      onUpdate={handleUpdateOutreach}
-                      onDelete={handleDeleteOutreach}
-                    />
+                    <OutreachCard key={item.id} item={item} isPending={isPending} onStage={handleStage} onTouch={handleTouch} onSnooze={handleSnooze} onUpdate={handleUpdateOutreach} onDelete={handleDeleteOutreach} />
                   ))}
                 </div>
               </section>
@@ -506,16 +358,7 @@ export default function Home() {
                   <EmptyHint text="Nobody's waiting on you. Nice." />
                 ) : (
                   todoItems.map((item) => (
-                    <OutreachCard
-                      key={item.id}
-                      item={item}
-                      isPending={isPending}
-                      onStage={handleStage}
-                      onTouch={handleTouch}
-                      onSnooze={handleSnooze}
-                      onUpdate={handleUpdateOutreach}
-                      onDelete={handleDeleteOutreach}
-                    />
+                    <OutreachCard key={item.id} item={item} isPending={isPending} onStage={handleStage} onTouch={handleTouch} onSnooze={handleSnooze} onUpdate={handleUpdateOutreach} onDelete={handleDeleteOutreach} />
                   ))
                 )}
               </OutreachColumn>
@@ -525,39 +368,18 @@ export default function Home() {
                   <EmptyHint text="No pending replies." />
                 ) : (
                   waitingItems.map((item) => (
-                    <OutreachCard
-                      key={item.id}
-                      item={item}
-                      isPending={isPending}
-                      onStage={handleStage}
-                      onTouch={handleTouch}
-                      onSnooze={handleSnooze}
-                      onUpdate={handleUpdateOutreach}
-                      onDelete={handleDeleteOutreach}
-                    />
+                    <OutreachCard key={item.id} item={item} isPending={isPending} onStage={handleStage} onTouch={handleTouch} onSnooze={handleSnooze} onUpdate={handleUpdateOutreach} onDelete={handleDeleteOutreach} />
                   ))
                 )}
               </OutreachColumn>
             </div>
 
-            {/* Done (collapsible) */}
             {doneItems.length > 0 && (
               <details className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-                <summary className="cursor-pointer text-sm font-medium text-slate-300">
-                  Done · {doneItems.length}
-                </summary>
+                <summary className="cursor-pointer text-sm font-medium text-slate-300">Done · {doneItems.length}</summary>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   {doneItems.map((item) => (
-                    <OutreachCard
-                      key={item.id}
-                      item={item}
-                      isPending={isPending}
-                      onStage={handleStage}
-                      onTouch={handleTouch}
-                      onSnooze={handleSnooze}
-                      onUpdate={handleUpdateOutreach}
-                      onDelete={handleDeleteOutreach}
-                    />
+                    <OutreachCard key={item.id} item={item} isPending={isPending} onStage={handleStage} onTouch={handleTouch} onSnooze={handleSnooze} onUpdate={handleUpdateOutreach} onDelete={handleDeleteOutreach} />
                   ))}
                 </div>
               </details>
@@ -566,32 +388,15 @@ export default function Home() {
         )}
       </div>
 
-      {/* Task detail drawer */}
-      {selectedTask && (
-        <TaskDrawer
-          key={selectedTask.id}
-          task={selectedTask}
+      {showAddGoal && (
+        <AddGoalDialog
           isPending={isPending}
-          onClose={() => setSelectedTaskId("")}
-          onStatus={handleStatus}
-          onSubtask={handleSubtask}
-          onProgress={handleProgress}
-          onDelete={handleDeleteTask}
-          onSaveNotes={(id, notes) => startTransition(async () => { await updateTaskNotes(id, notes); })}
-          onRenameTask={(id, title) => withReload(() => updateTaskTitle(id, title), reloadTasks)}
-          onAddSubtask={(id, title) => withReload(() => addSubtask(id, title), reloadTasks)}
-        />
-      )}
-
-      {showAddTask && (
-        <AddTaskDialog
-          isPending={isPending}
-          onClose={() => setShowAddTask(false)}
+          onClose={() => setShowAddGoal(false)}
           onCreate={(input) =>
             startTransition(async () => {
-              await createTask(input);
-              await reloadTasks();
-              setShowAddTask(false);
+              await createGoal(input);
+              await reloadGoals();
+              setShowAddGoal(false);
             })
           }
         />
@@ -614,19 +419,274 @@ export default function Home() {
   );
 }
 
+// ---------- Goal card ----------
+
+function GoalCard({
+  goal,
+  monthKey,
+  isCurrentMonth,
+  isPending,
+  onSetDay,
+  onCount,
+  onStep,
+  onDelete,
+}: {
+  goal: Goal;
+  monthKey: string;
+  isCurrentMonth: boolean;
+  isPending: boolean;
+  onSetDay: (goalId: string, dateKey: string, count: number) => void;
+  onCount: (goalId: string, delta: number) => void;
+  onStep: (goalId: string, stepId: string) => void;
+  onDelete: (goalId: string) => void;
+}) {
+  const meta = CATEGORY_META[goal.category];
+  const percent = goalPercent(goal, monthKey);
+  const onPace = goalOnPace(goal, monthKey);
+
+  return (
+    <div className="flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div>
+          <CategoryBadge category={goal.category} />
+          <h3 className="mt-2 text-lg font-semibold text-white">{goal.title}</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <PaceChip onPace={onPace} />
+          <button
+            type="button"
+            onClick={() => onDelete(goal.id)}
+            disabled={isPending}
+            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-slate-500 transition hover:border-rose-400/30 hover:text-rose-200"
+            title="Delete goal"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      {goal.type === "daily" && (
+        <DailyGoalBody goal={goal} monthKey={monthKey} isCurrentMonth={isCurrentMonth} isPending={isPending} onSetDay={onSetDay} percent={percent} meta={meta} />
+      )}
+      {goal.type === "count" && (
+        <CountGoalBody goal={goal} monthKey={monthKey} isPending={isPending} onCount={onCount} percent={percent} meta={meta} />
+      )}
+      {goal.type === "project" && (
+        <ProjectGoalBody goal={goal} monthKey={monthKey} isPending={isPending} onStep={onStep} percent={percent} meta={meta} />
+      )}
+    </div>
+  );
+}
+
+function DailyGoalBody({
+  goal,
+  monthKey,
+  isCurrentMonth,
+  isPending,
+  onSetDay,
+  percent,
+  meta,
+}: {
+  goal: Goal;
+  monthKey: string;
+  isCurrentMonth: boolean;
+  isPending: boolean;
+  onSetDay: (goalId: string, dateKey: string, count: number) => void;
+  percent: number;
+  meta: (typeof CATEGORY_META)[GoalCategory];
+}) {
+  const perDay = goal.perDay ?? 1;
+  const total = daysInMonth(monthKey);
+  const done = dailyDone(goal, monthKey);
+  const target = dailyTarget(goal, monthKey);
+  const todayNum = new Date().getDate();
+  const todayCount = goal.dailyLog[todayKey()] ?? 0;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className="mb-1 flex items-center justify-between text-sm">
+          <span className="text-slate-400">Month completion</span>
+          <span className="font-medium text-slate-200">{done} / {target} · {percent}%</span>
+        </div>
+        <Bar percent={percent} gradient={meta.gradient} />
+      </div>
+
+      {isCurrentMonth && (
+        <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs uppercase tracking-widest text-slate-500">Today</span>
+            <span className="text-xs text-slate-400">{todayCount}/{perDay}</span>
+          </div>
+          <div className="flex gap-1.5">
+            {Array.from({ length: perDay }).map((_, i) => {
+              const filled = i < todayCount;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => onSetDay(goal.id, todayKey(), filled && todayCount === i + 1 ? i : i + 1)}
+                  className={cn(
+                    "h-8 flex-1 rounded-lg border text-xs transition",
+                    filled
+                      ? cn("border-transparent bg-linear-to-r text-white", meta.gradient)
+                      : "border-white/10 bg-white/5 text-slate-500 hover:bg-white/10",
+                  )}
+                  title={`Mark ${i + 1} done`}
+                >
+                  {i + 1}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Month heatmap — click any day to log */}
+      <div>
+        <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">Daily log · tap to update</p>
+        <div className="flex flex-wrap gap-1">
+          {Array.from({ length: total }).map((_, idx) => {
+            const day = idx + 1;
+            const key = dayKey(monthKey, day);
+            const count = goal.dailyLog[key] ?? 0;
+            const frac = count / perDay;
+            const isToday = isCurrentMonth && day === todayNum;
+            return (
+              <button
+                key={day}
+                type="button"
+                disabled={isPending}
+                onClick={() => onSetDay(goal.id, key, (count + 1) % (perDay + 1))}
+                title={`${monthKey}-${String(day).padStart(2, "0")}: ${count}/${perDay}`}
+                className={cn(
+                  "flex h-7 w-7 items-center justify-center rounded-md border text-[10px] transition",
+                  isToday ? "border-cyan-400/60" : "border-white/10",
+                  frac === 0 && "bg-white/5 text-slate-600",
+                  frac > 0 && frac < 1 && "bg-emerald-500/30 text-emerald-100",
+                  frac >= 1 && "bg-emerald-500/70 text-white",
+                )}
+              >
+                {day}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CountGoalBody({
+  goal,
+  monthKey,
+  isPending,
+  onCount,
+  percent,
+  meta,
+}: {
+  goal: Goal;
+  monthKey: string;
+  isPending: boolean;
+  onCount: (goalId: string, delta: number) => void;
+  percent: number;
+  meta: (typeof CATEGORY_META)[GoalCategory];
+}) {
+  const target = goal.monthlyTarget ?? 1;
+  const done = countDone(goal, monthKey);
+  const unit = goal.unit ?? "times";
+  const complete = done >= target;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-3xl font-bold text-white">
+            {done}
+            <span className="text-lg text-slate-500"> / {target}</span>
+          </p>
+          <p className="text-xs text-slate-400">{unit} this month</p>
+        </div>
+        {complete ? (
+          <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-sm font-medium text-emerald-200">Done ✓</span>
+        ) : (
+          <span className="text-sm text-slate-400">{percent}%</span>
+        )}
+      </div>
+
+      <Bar percent={percent} gradient={meta.gradient} />
+
+      <div className="flex gap-2">
+        <button type="button" disabled={isPending || done === 0} onClick={() => onCount(goal.id, -1)} className="rounded-lg border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-slate-200 transition hover:bg-white/10 disabled:opacity-40">
+          −
+        </button>
+        <button type="button" disabled={isPending} onClick={() => onCount(goal.id, 1)} className={cn("flex-1 rounded-lg border border-transparent bg-linear-to-r px-4 py-1.5 text-sm font-medium text-white transition hover:brightness-110", meta.gradient)}>
+          + Log {unit.replace(/s$/, "")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProjectGoalBody({
+  goal,
+  monthKey,
+  isPending,
+  onStep,
+  percent,
+  meta,
+}: {
+  goal: Goal;
+  monthKey: string;
+  isPending: boolean;
+  onStep: (goalId: string, stepId: string) => void;
+  percent: number;
+  meta: (typeof CATEGORY_META)[GoalCategory];
+}) {
+  const steps = projectSteps(goal, monthKey);
+  const elapsed = Math.round(monthElapsedFraction(monthKey) * 100);
+  const behind = percent < elapsed;
+
+  return (
+    <div className="space-y-4">
+      {/* Pace bar with an "elapsed" marker */}
+      <div>
+        <div className="mb-1 flex items-center justify-between text-sm">
+          <span className="text-slate-400">
+            {monthKey === currentMonthKey() ? `Day ${new Date().getDate()} of ${daysInMonth(monthKey)}` : monthLabel(monthKey)}
+          </span>
+          <span className={cn("font-medium", behind ? "text-amber-200" : "text-emerald-200")}>
+            {percent}% done · {elapsed}% of month
+          </span>
+        </div>
+        <div className="relative h-2 overflow-hidden rounded-full bg-white/10">
+          <div className={cn("h-full rounded-full bg-linear-to-r", meta.gradient)} style={{ width: `${percent}%` }} />
+          <div className="absolute inset-y-0 w-0.5 bg-white/70" style={{ left: `${elapsed}%` }} title="Where you should be" />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {steps.map((step) => (
+          <label
+            key={step.id}
+            className={cn(
+              "flex cursor-pointer items-center gap-3 rounded-xl border p-2.5 transition",
+              step.completed ? "border-emerald-400/20 bg-emerald-500/10" : "border-white/10 bg-white/5 hover:border-white/20",
+            )}
+          >
+            <input type="checkbox" checked={step.completed} onChange={() => onStep(goal.id, step.id)} disabled={isPending} className="h-4 w-4 rounded border-white/20 accent-emerald-500" />
+            <span className={cn("text-sm font-medium", step.completed ? "text-slate-400 line-through" : "text-white")}>{step.title}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---------- Outreach ----------
 
-function OutreachColumn({
-  title,
-  accent,
-  count,
-  children,
-}: {
-  title: string;
-  accent: string;
-  count: number;
-  children: React.ReactNode;
-}) {
+function OutreachColumn({ title, accent, count, children }: { title: string; accent: string; count: number; children: React.ReactNode }) {
   return (
     <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
       <div className="mb-4 flex items-center justify-between">
@@ -639,11 +699,7 @@ function OutreachColumn({
 }
 
 function EmptyHint({ text }: { text: string }) {
-  return (
-    <p className="rounded-xl border border-dashed border-white/10 py-6 text-center text-sm text-slate-500">
-      {text}
-    </p>
-  );
+  return <p className="rounded-xl border border-dashed border-white/10 py-6 text-center text-sm text-slate-500">{text}</p>;
 }
 
 function FollowUpChip({ item }: { item: OutreachItem }) {
@@ -651,28 +707,16 @@ function FollowUpChip({ item }: { item: OutreachItem }) {
     return <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">closed</span>;
   }
   if (!item.followUpOn) {
-    return (
-      <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-400">
-        {daysSince(item.lastAction)}d since
-      </span>
-    );
+    return <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-400">{daysSince(item.lastAction)}d since</span>;
   }
   const until = daysUntil(item.followUpOn);
   if (until < 0) {
-    return (
-      <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] text-rose-200">
-        {Math.abs(until)}d overdue
-      </span>
-    );
+    return <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] text-rose-200">{Math.abs(until)}d overdue</span>;
   }
   if (until === 0) {
     return <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] text-amber-200">due today</span>;
   }
-  return (
-    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-400">
-      in {until}d
-    </span>
-  );
+  return <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-400">in {until}d</span>;
 }
 
 const outreachBtn = "rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-50";
@@ -691,10 +735,7 @@ function OutreachCard({
   onStage: (id: string, stage: OutreachStage) => void;
   onTouch: (id: string, note?: string, followUpInDays?: number) => void;
   onSnooze: (id: string, days: number) => void;
-  onUpdate: (
-    id: string,
-    patch: Partial<Pick<OutreachItem, "name" | "topic" | "channel" | "nextAction" | "followUpOn">>,
-  ) => void;
+  onUpdate: (id: string, patch: Partial<Pick<OutreachItem, "name" | "topic" | "channel" | "nextAction" | "followUpOn">>) => void;
   onDelete: (id: string) => void;
 }) {
   const channel = CHANNEL_META[item.channel];
@@ -730,13 +771,7 @@ function OutreachCard({
             type="button"
             disabled={isPending}
             onClick={() => {
-              onUpdate(item.id, {
-                name,
-                topic,
-                channel: channelValue,
-                nextAction,
-                followUpOn: followUpOn || null,
-              });
+              onUpdate(item.id, { name, topic, channel: channelValue, nextAction, followUpOn: followUpOn || null });
               setEditing(false);
             }}
             className="flex-1 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
@@ -755,9 +790,7 @@ function OutreachCard({
     <div className={cn("rounded-xl border bg-black/20 p-3", overdue ? "border-rose-400/30" : "border-white/10")}>
       <div className="mb-1.5 flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm" title={channel.label}>
-            {channel.icon}
-          </span>
+          <span className="text-sm" title={channel.label}>{channel.icon}</span>
           <div className="min-w-0">
             <p className="truncate font-medium text-white">{item.name}</p>
             <p className="truncate text-xs text-slate-400">{item.topic}</p>
@@ -766,7 +799,7 @@ function OutreachCard({
         <FollowUpChip item={item} />
       </div>
 
-      <p className="mb-2 text-xs leading-relaxed text-slate-300">{item.nextAction}</p>
+      <p className="mb-2 whitespace-pre-line text-xs leading-relaxed text-slate-300">{item.nextAction}</p>
 
       <p className="mb-3 text-[11px] text-slate-500">
         Last touch {daysSince(item.lastAction)}d ago
@@ -781,52 +814,25 @@ function OutreachCard({
           </button>
         ) : (
           <>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => onTouch(item.id)}
-              className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20 disabled:opacity-50"
-              title="Record that you reached out; schedules a follow-up in 5 days"
-            >
+            <button type="button" disabled={isPending} onClick={() => onTouch(item.id)} className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20 disabled:opacity-50" title="Record that you reached out; schedules a follow-up in 5 days">
               ✓ Log touch
             </button>
             {item.stage === "waiting" && (
               <>
-                <button type="button" disabled={isPending} onClick={() => onSnooze(item.id, 3)} className={outreachBtn}>
-                  +3d
-                </button>
-                <button type="button" disabled={isPending} onClick={() => onSnooze(item.id, 7)} className={outreachBtn}>
-                  +7d
-                </button>
+                <button type="button" disabled={isPending} onClick={() => onSnooze(item.id, 3)} className={outreachBtn}>+3d</button>
+                <button type="button" disabled={isPending} onClick={() => onSnooze(item.id, 7)} className={outreachBtn}>+7d</button>
               </>
             )}
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => onStage(item.id, item.stage === "todo" ? "waiting" : "todo")}
-              className={outreachBtn}
-            >
+            <button type="button" disabled={isPending} onClick={() => onStage(item.id, item.stage === "todo" ? "waiting" : "todo")} className={outreachBtn}>
               {item.stage === "todo" ? "→ Waiting" : "→ Your move"}
             </button>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => onStage(item.id, "done")}
-              className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20 disabled:opacity-50"
-            >
+            <button type="button" disabled={isPending} onClick={() => onStage(item.id, "done")} className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20 disabled:opacity-50">
               Done
             </button>
           </>
         )}
-        <button type="button" onClick={() => setEditing(true)} className={cn(outreachBtn, "ml-auto")}>
-          Edit
-        </button>
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={() => onDelete(item.id)}
-          className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-400 transition hover:border-rose-400/30 hover:text-rose-200 disabled:opacity-50"
-        >
+        <button type="button" onClick={() => setEditing(true)} className={cn(outreachBtn, "ml-auto")}>Edit</button>
+        <button type="button" disabled={isPending} onClick={() => onDelete(item.id)} className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-400 transition hover:border-rose-400/30 hover:text-rose-200 disabled:opacity-50">
           Delete
         </button>
       </div>
@@ -834,198 +840,7 @@ function OutreachCard({
   );
 }
 
-// ---------- Task drawer ----------
-
-function TaskDrawer({
-  task,
-  isPending,
-  onClose,
-  onStatus,
-  onSubtask,
-  onProgress,
-  onDelete,
-  onSaveNotes,
-  onRenameTask,
-  onAddSubtask,
-}: {
-  task: Task;
-  isPending: boolean;
-  onClose: () => void;
-  onStatus: (id: string, status: TaskStatus) => void;
-  onSubtask: (taskId: string, subtaskId: string, completed: boolean) => void;
-  onProgress: (id: string, delta: number) => void;
-  onDelete: (id: string) => void;
-  onSaveNotes: (id: string, notes: string) => void;
-  onRenameTask: (id: string, title: string) => void;
-  onAddSubtask: (id: string, title: string) => void;
-}) {
-  const meta = TYPE_META[task.type];
-  const [notes, setNotes] = useState(task.notes);
-  const [title, setTitle] = useState(task.title);
-  const [newSubtask, setNewSubtask] = useState("");
-  const mp = task.monthlyProgress[currentMonthKey()];
-  const mPercent = monthPercent(task);
-
-  return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <aside className="animate-fade-in relative flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-white/10 bg-slate-950/95 p-6">
-        <div className="mb-4 flex items-start justify-between gap-2">
-          <TypeBadge type={task.type} />
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-400 transition hover:text-white"
-          >
-            Close ✕
-          </button>
-        </div>
-
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => title.trim() && title !== task.title && onRenameTask(task.id, title)}
-          className="w-full rounded-lg border border-transparent bg-transparent text-xl font-bold text-white outline-none transition focus:border-white/10 focus:bg-white/5 focus:px-2"
-        />
-        <p className="mt-1 text-sm text-slate-500">{meta.description}</p>
-
-        {/* Monthly progress */}
-        <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-300 capitalize">{task.cadence} progress</span>
-            <span className="font-semibold text-white">
-              {mp ? `${mp.completed}/${mp.target}` : `0/${task.targetPerMonth}`}
-            </span>
-          </div>
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-            <div className={cn("h-full rounded-full bg-linear-to-r", meta.gradient)} style={{ width: `${mPercent}%` }} />
-          </div>
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={() => onProgress(task.id, -1)}
-              disabled={isPending}
-              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-200 transition hover:bg-white/10"
-            >
-              −
-            </button>
-            <button
-              type="button"
-              onClick={() => onProgress(task.id, 1)}
-              disabled={isPending}
-              className="flex-1 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-sm text-emerald-100 transition hover:bg-emerald-500/20"
-            >
-              + Log progress
-            </button>
-          </div>
-        </div>
-
-        {/* Status */}
-        <div className="mt-5">
-          <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">Status</p>
-          <div className="flex flex-wrap gap-2">
-            {STATUS_ORDER.map((s) => {
-              const sm = STATUS_META[s];
-              const active = task.status === s;
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => onStatus(task.id, s)}
-                  disabled={isPending}
-                  className={cn(
-                    "rounded-lg border px-2.5 py-1 text-xs font-medium transition",
-                    active ? sm.soft : "border-white/10 bg-white/5 text-slate-400 hover:text-slate-200",
-                  )}
-                >
-                  {sm.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Subtasks */}
-        <div className="mt-5">
-          <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">Steps</p>
-          <div className="space-y-2">
-            {task.subtasks.map((subtask) => (
-              <label
-                key={subtask.id}
-                className={cn(
-                  "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition",
-                  subtask.completed
-                    ? "border-emerald-400/20 bg-emerald-500/10"
-                    : "border-white/10 bg-white/5 hover:border-white/20",
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={subtask.completed}
-                  onChange={() => onSubtask(task.id, subtask.id, !subtask.completed)}
-                  disabled={isPending}
-                  className="mt-0.5 h-4 w-4 rounded border-white/20 accent-emerald-500"
-                />
-                <div className="flex-1">
-                  <p className={cn("text-sm font-medium", subtask.completed ? "text-slate-400 line-through" : "text-white")}>
-                    {subtask.title}
-                  </p>
-                  {subtask.note && <p className="mt-0.5 text-xs text-slate-500">{subtask.note}</p>}
-                </div>
-              </label>
-            ))}
-          </div>
-          <form
-            className="mt-2 flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (newSubtask.trim()) {
-                onAddSubtask(task.id, newSubtask);
-                setNewSubtask("");
-              }
-            }}
-          >
-            <input
-              value={newSubtask}
-              onChange={(e) => setNewSubtask(e.target.value)}
-              placeholder="Add a step…"
-              className="flex-1 rounded-lg border border-white/10 bg-slate-950/60 px-3 py-1.5 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/50"
-            />
-            <button
-              type="submit"
-              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10"
-            >
-              Add
-            </button>
-          </form>
-        </div>
-
-        {/* Notes */}
-        <div className="mt-5">
-          <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">Notes</p>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            onBlur={() => onSaveNotes(task.id, notes)}
-            placeholder="Add notes…"
-            className="min-h-28 w-full rounded-xl border border-white/10 bg-slate-950/60 p-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-400/50"
-          />
-        </div>
-
-        <button
-          type="button"
-          onClick={() => onDelete(task.id)}
-          disabled={isPending}
-          className="mt-6 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-400 transition hover:border-rose-400/30 hover:text-rose-200"
-        >
-          Delete task
-        </button>
-      </aside>
-    </div>
-  );
-}
-
-// ---------- Add task dialog ----------
+// ---------- Dialogs ----------
 
 function Modal({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
   return (
@@ -1034,9 +849,7 @@ function Modal({ children, onClose, title }: { children: React.ReactNode; onClos
       <div className="animate-fade-in relative w-full max-w-md rounded-2xl border border-white/10 bg-slate-950/95 p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">{title}</h2>
-          <button type="button" onClick={onClose} className="text-slate-500 transition hover:text-white">
-            ✕
-          </button>
+          <button type="button" onClick={onClose} className="text-slate-500 transition hover:text-white">✕</button>
         </div>
         {children}
       </div>
@@ -1047,23 +860,31 @@ function Modal({ children, onClose, title }: { children: React.ReactNode; onClos
 const inputClass =
   "w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/50";
 
-function AddTaskDialog({
+function AddGoalDialog({
   onClose,
   onCreate,
   isPending,
 }: {
   onClose: () => void;
-  onCreate: (input: { title: string; type: TaskType; cadence: TaskCadence; tags: string[]; targetPerMonth: number }) => void;
+  onCreate: (input: {
+    title: string;
+    category: GoalCategory;
+    type: GoalType;
+    perDay?: number;
+    monthlyTarget?: number;
+    unit?: string;
+  }) => void;
   isPending: boolean;
 }) {
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<TaskType>("video");
-  const [cadence, setCadence] = useState<TaskCadence>("monthly");
-  const [tags, setTags] = useState("");
-  const [target, setTarget] = useState(1);
+  const [category, setCategory] = useState<GoalCategory>("other");
+  const [type, setType] = useState<GoalType>("count");
+  const [perDay, setPerDay] = useState(5);
+  const [monthlyTarget, setMonthlyTarget] = useState(3);
+  const [unit, setUnit] = useState("sessions");
 
   return (
-    <Modal title="New task" onClose={onClose}>
+    <Modal title="New goal" onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -1071,55 +892,69 @@ function AddTaskDialog({
           if (!title.trim()) return;
           onCreate({
             title,
+            category,
             type,
-            cadence,
-            tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
-            targetPerMonth: Math.max(1, target),
+            perDay: type === "daily" ? Math.max(1, perDay) : undefined,
+            monthlyTarget: type === "count" ? Math.max(1, monthlyTarget) : undefined,
+            unit: type === "count" ? unit : undefined,
           });
         }}
       >
         <div>
           <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Title</label>
-          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. August video: idea → upload" className={inputClass} />
+          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Meditate daily" className={inputClass} />
         </div>
         <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Category</label>
+            <select value={category} onChange={(e) => setCategory(e.target.value as GoalCategory)} className={inputClass}>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c} className="bg-slate-900">
+                  {CATEGORY_META[c].icon} {CATEGORY_META[c].label}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Type</label>
-            <select value={type} onChange={(e) => setType(e.target.value as TaskType)} className={inputClass}>
-              {ALL_TYPES.map((t) => (
-                <option key={t} value={t} className="bg-slate-900">
-                  {TYPE_META[t].label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Cadence</label>
-            <select value={cadence} onChange={(e) => setCadence(e.target.value as TaskCadence)} className={inputClass}>
-              {(["one-off", "daily", "weekly", "monthly"] as TaskCadence[]).map((c) => (
-                <option key={c} value={c} className="bg-slate-900">
-                  {c}
-                </option>
-              ))}
+            <select value={type} onChange={(e) => setType(e.target.value as GoalType)} className={inputClass}>
+              <option value="daily" className="bg-slate-900">Daily (N/day)</option>
+              <option value="count" className="bg-slate-900">Monthly count</option>
+              <option value="project" className="bg-slate-900">Project (steps)</option>
             </select>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+
+        {type === "daily" && (
           <div>
-            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Monthly target</label>
-            <input type="number" min={1} value={target} onChange={(e) => setTarget(Number(e.target.value))} className={inputClass} />
+            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Times per day</label>
+            <input type="number" min={1} value={perDay} onChange={(e) => setPerDay(Number(e.target.value))} className={inputClass} />
           </div>
-          <div>
-            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Tags (comma sep)</label>
-            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="health, recurring" className={inputClass} />
+        )}
+        {type === "count" && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Monthly target</label>
+              <input type="number" min={1} value={monthlyTarget} onChange={(e) => setMonthlyTarget(Number(e.target.value))} className={inputClass} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Unit</label>
+              <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="sessions" className={inputClass} />
+            </div>
           </div>
-        </div>
+        )}
+        {type === "project" && (
+          <p className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-slate-400">
+            Creates a monthly project with steps: Idea → Draft → Finish. It&apos;s paced against the calendar.
+          </p>
+        )}
+
         <button
           type="submit"
           disabled={isPending || !title.trim()}
           className="w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
         >
-          Create task
+          Create goal
         </button>
       </form>
     </Modal>
@@ -1132,13 +967,7 @@ function AddOutreachDialog({
   isPending,
 }: {
   onClose: () => void;
-  onCreate: (input: {
-    name: string;
-    topic: string;
-    nextAction: string;
-    channel: OutreachChannel;
-    followUpInDays: number | null;
-  }) => void;
+  onCreate: (input: { name: string; topic: string; nextAction: string; channel: OutreachChannel; followUpInDays: number | null }) => void;
   isPending: boolean;
 }) {
   const [name, setName] = useState("");
@@ -1182,16 +1011,8 @@ function AddOutreachDialog({
           <textarea value={nextAction} onChange={(e) => setNextAction(e.target.value)} placeholder="Send update and ask for timeline." className={cn(inputClass, "min-h-20")} />
         </div>
         <div>
-          <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">
-            Remind me to follow up in (days)
-          </label>
-          <input
-            type="number"
-            min={0}
-            value={followUpInDays}
-            onChange={(e) => setFollowUpInDays(Number(e.target.value))}
-            className={inputClass}
-          />
+          <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Remind me to follow up in (days)</label>
+          <input type="number" min={0} value={followUpInDays} onChange={(e) => setFollowUpInDays(Number(e.target.value))} className={inputClass} />
           <p className="mt-1 text-[11px] text-slate-500">Set to 0 for no reminder.</p>
         </div>
         <button
