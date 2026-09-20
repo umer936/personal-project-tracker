@@ -129,6 +129,7 @@ export async function createGoal(input: {
     title: input.title.trim() || "New goal",
     category: input.category,
     type: input.type,
+    locked: false,
     perDay: input.type === "daily" ? input.perDay ?? 1 : undefined,
     monthlyTarget: input.type === "count" ? input.monthlyTarget ?? 1 : undefined,
     unit: input.type === "count" ? input.unit ?? "times" : undefined,
@@ -147,7 +148,8 @@ export async function createGoal(input: {
 
 export async function deleteGoal(goalId: string) {
   const database = await readDatabase();
-  database.goals = database.goals.filter((g) => g.id !== goalId);
+  // Core (locked) goals can't be deleted.
+  database.goals = database.goals.filter((g) => g.id !== goalId || g.locked);
   await writeDatabase(database);
 }
 

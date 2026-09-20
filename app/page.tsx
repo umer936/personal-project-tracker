@@ -453,15 +453,17 @@ function GoalCard({
         </div>
         <div className="flex items-center gap-2">
           <PaceChip onPace={onPace} />
-          <button
-            type="button"
-            onClick={() => onDelete(goal.id)}
-            disabled={isPending}
-            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-slate-500 transition hover:border-rose-400/30 hover:text-rose-200"
-            title="Delete goal"
-          >
-            ✕
-          </button>
+          {!goal.locked && (
+            <button
+              type="button"
+              onClick={() => onDelete(goal.id)}
+              disabled={isPending}
+              className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-slate-500 transition hover:border-rose-400/30 hover:text-rose-200"
+              title="Delete goal"
+            >
+              ✕
+            </button>
+          )}
         </div>
       </div>
 
@@ -543,9 +545,12 @@ function DailyGoalBody({
         </div>
       )}
 
-      {/* Month heatmap — click any day to log */}
+      {/* Month heatmap — read-only history. Prayers can't be caught up,
+          so past days are locked; you can only log today (above). */}
       <div>
-        <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">Daily log · tap to update</p>
+        <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">
+          {isCurrentMonth ? "This month · log today only" : "Month history"}
+        </p>
         <div className="flex flex-wrap gap-1">
           {Array.from({ length: total }).map((_, idx) => {
             const day = idx + 1;
@@ -553,23 +558,24 @@ function DailyGoalBody({
             const count = goal.dailyLog[key] ?? 0;
             const frac = count / perDay;
             const isToday = isCurrentMonth && day === todayNum;
+            const isPast = isCurrentMonth ? day < todayNum : monthKey < currentMonthKey();
+            // Missed past days (nothing logged) are shown in red — they can't be recovered.
+            const missed = isPast && count === 0;
             return (
-              <button
+              <div
                 key={day}
-                type="button"
-                disabled={isPending}
-                onClick={() => onSetDay(goal.id, key, (count + 1) % (perDay + 1))}
                 title={`${monthKey}-${String(day).padStart(2, "0")}: ${count}/${perDay}`}
                 className={cn(
-                  "flex h-7 w-7 items-center justify-center rounded-md border text-[10px] transition",
+                  "flex h-7 w-7 items-center justify-center rounded-md border text-[10px]",
                   isToday ? "border-cyan-400/60" : "border-white/10",
-                  frac === 0 && "bg-white/5 text-slate-600",
+                  frac === 0 && !missed && "bg-white/5 text-slate-600",
+                  missed && "border-rose-500/30 bg-rose-500/10 text-rose-300/70",
                   frac > 0 && frac < 1 && "bg-emerald-500/30 text-emerald-100",
                   frac >= 1 && "bg-emerald-500/70 text-white",
                 )}
               >
                 {day}
-              </button>
+              </div>
             );
           })}
         </div>

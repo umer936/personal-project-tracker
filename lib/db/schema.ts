@@ -29,6 +29,9 @@ export type Goal = {
   category: GoalCategory;
   type: GoalType;
 
+  // Core life goals are locked: they can't be deleted, only custom goals can.
+  locked?: boolean;
+
   // "daily"
   perDay?: number; // e.g. 5 prayers
 
