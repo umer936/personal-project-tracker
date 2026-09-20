@@ -5,7 +5,7 @@
 # This image is a convenience: it builds the static site and serves it with nginx.
 
 # Stage 1 — build the static export (./out)
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

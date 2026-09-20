@@ -14,7 +14,7 @@ The starting set of goals is defined in `lib/db/seed.ts`.
 ---
 ## Deploy it (no build tools on the server)
 ### Option A — Upload the static files (recommended)
-1. Build the site (needs Node.js 20+ **only on your machine**, not the server):
+1. Build the site (needs Node.js 20+ **only on your machine** (Node 26 LTS recommended), not the server):
    ```bash
    npm install
    npm run build
@@ -43,16 +43,16 @@ npm run dev      # http://localhost:3003
 ```
 ---
 ## Project layout
-| Path | What it is |
-| --- | --- |
-| `app/page.tsx` | The whole UI (Goals + Outreach tabs) |
-| `app/layout.tsx`, `app/globals.css` | Root layout and styling (Tailwind CSS v4) |
-| `lib/db/schema.ts` | Data model (types) |
-| `lib/db/seed.ts` | Default goals used to seed a fresh browser |
-| `lib/db/store.ts` | Client-side data layer (reads/writes localStorage) |
-| `lib/ui.ts` | UI helpers + category/channel metadata |
-| `next.config.ts` | output "export" (static build) |
-| `Dockerfile`, `docker-compose.yml` | Optional nginx static hosting |
+| Path                                | What it is                                         |
+|-------------------------------------|----------------------------------------------------|
+| `app/page.tsx`                      | The whole UI (Goals + Outreach tabs)               |
+| `app/layout.tsx`, `app/globals.css` | Root layout and styling (Tailwind CSS v4)          |
+| `lib/db/schema.ts`                  | Data model (types)                                 |
+| `lib/db/seed.ts`                    | Default goals used to seed a fresh browser         |
+| `lib/db/store.ts`                   | Client-side data layer (reads/writes localStorage) |
+| `lib/ui.ts`                         | UI helpers + category/channel metadata             |
+| `next.config.ts`                    | output "export" (static build)                     |
+| `Dockerfile`, `docker-compose.yml`  | Optional nginx static hosting                      |
 ---
 ## Resetting or backing up your data
 Everything is under one localStorage key: **`rhythm-planner-db-v1`**.
