@@ -1,16 +1,15 @@
-FROM node:26-alpine
+# syntax=docker/dockerfile:1
+FROM node:22-alpine
 
 WORKDIR /app
 
-# Copy package files
+# Install dependencies first (better layer caching)
 COPY package*.json ./
-
-# Install dependencies
 RUN npm ci
 
-# Copy app files
+# Copy the rest of the app
 COPY . .
 
-EXPOSE 3000
+EXPOSE 3003
 
 CMD ["npm", "run", "dev"]

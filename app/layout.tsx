@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Task Rhythm Planner",
-  description: "A personal planner for Gantt-style tasks, recurring rhythms, notes, and monthly progress.",
+  title: "Rhythm · Personal Planner",
+  description:
+    "A calm, focused personal planner: today's focus, recurring rhythms, a timeline, monthly progress, and an outreach inbox.",
 };
 
 export default function RootLayout({

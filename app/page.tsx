@@ -1,351 +1,348 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import type { Task, OutreachItem, TaskType, TaskStatus, InboxOwner } from "@/lib/db/schema";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import type { InboxOwner, OutreachItem, Task, TaskCadence, TaskStatus, TaskType } from "@/lib/db/schema";
 import {
-  getTasks,
+  addSubtask,
+  adjustMonthlyProgress,
+  createOutreach,
+  createTask,
+  deleteOutreach,
+  deleteTask,
   getOutreachItems,
-  updateTaskStatus,
-  updateTaskNotes,
-  updateSubtask,
-  updateOutreachOwner,
+  getTasks,
   toggleOutreachDone,
+  updateOutreachOwner,
+  updateSubtask,
+  updateTaskNotes,
+  updateTaskStatus,
+  updateTaskTitle,
 } from "@/lib/db/actions";
+import {
+  STATUS_META,
+  TYPE_META,
+  cn,
+  currentMonthKey,
+  daysSince,
+  formatLongDate,
+  startOfDay,
+  toDateString,
+} from "@/lib/ui";
+import { Timeline } from "./components/Timeline";
 
-type TaskTypeMeta = {
-  label: string;
-  gradient: string;
-  glow: string;
-  description: string;
-};
+type Tab = "overview" | "timeline" | "outreach";
 
-const TASK_TYPE_META: Record<TaskType, TaskTypeMeta> = {
-  video: {
-    label: "YouTube",
-    gradient: "from-amber-500 via-orange-500 to-rose-500",
-    glow: "shadow-amber-500/50",
-    description: "Idea → script → record → edit → publish",
-  },
-  prayer: {
-    label: "Prayer",
-    gradient: "from-emerald-500 via-teal-500 to-cyan-500",
-    glow: "shadow-emerald-500/50",
-    description: "Daily rhythm and recovery",
-  },
-  exercise: {
-    label: "Exercise",
-    gradient: "from-sky-500 via-blue-500 to-indigo-500",
-    glow: "shadow-sky-500/50",
-    description: "Monthly target and streak",
-  },
-  outreach: {
-    label: "Outreach",
-    gradient: "from-fuchsia-500 via-pink-500 to-rose-500",
-    glow: "shadow-fuchsia-500/50",
-    description: "Inbox pipeline and follow-up",
-  },
-  admin: {
-    label: "Admin",
-    gradient: "from-violet-500 via-purple-500 to-indigo-500",
-    glow: "shadow-violet-500/50",
-    description: "Docs, notes, and cleanup",
-  },
-};
+const ALL_TYPES: TaskType[] = ["video", "prayer", "exercise", "outreach", "admin"];
+const STATUS_ORDER: TaskStatus[] = ["planned", "in-progress", "waiting", "postponed", "done"];
 
-const CELL_WIDTH = 20;
-const TASK_COLUMN_WIDTH = 240;
-
-function pad(value: number) {
-  return String(value).padStart(2, "0");
+function monthPercent(task: Task) {
+  const mp = task.monthlyProgress[currentMonthKey()];
+  if (!mp || mp.target === 0) return 0;
+  return Math.round((mp.completed / mp.target) * 100);
 }
 
-function parseDate(dateString: string) {
-  const [year, month, day] = dateString.split("-").map(Number);
-  return new Date(year, month - 1, day);
+function subtaskPercent(task: Task) {
+  if (task.subtasks.length === 0) return 0;
+  const done = task.subtasks.filter((s) => s.completed).length;
+  return Math.round((done / task.subtasks.length) * 100);
 }
 
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+// ---------- Small building blocks ----------
+
+function ProgressRing({ percent, gradientId }: { percent: number; gradientId: string }) {
+  const radius = 26;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (percent / 100) * circumference;
+  return (
+    <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#22d3ee" />
+          <stop offset="100%" stopColor="#a855f7" />
+        </linearGradient>
+      </defs>
+      <circle cx="32" cy="32" r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+      <circle
+        cx="32"
+        cy="32"
+        r={radius}
+        fill="none"
+        stroke={`url(#${gradientId})`}
+        strokeWidth="6"
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        className="transition-[stroke-dashoffset] duration-500"
+      />
+    </svg>
+  );
 }
 
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
+function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur">
+      <p className="text-xs uppercase tracking-widest text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-white">{value}</p>
+      {hint && <p className="mt-0.5 text-xs text-slate-400">{hint}</p>}
+    </div>
+  );
 }
 
-function monthKey(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
+function TypeBadge({ type }: { type: TaskType }) {
+  const meta = TYPE_META[type];
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium", meta.soft)}>
+      <span>{meta.icon}</span>
+      {meta.label}
+    </span>
+  );
 }
 
-function formatDate(date: Date) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-  }).format(date);
+function StatusBadge({ status }: { status: TaskStatus }) {
+  const meta = STATUS_META[status];
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium", meta.soft)}>
+      <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
+      {meta.label}
+    </span>
+  );
 }
 
-function formatMonth(date: Date) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    year: "numeric",
-  }).format(date);
-}
-
-function buildTimeline(tasks: Task[]) {
-  const taskDates = tasks.flatMap((task) => [parseDate(task.start), parseDate(task.end)]);
-  const today = startOfDay(new Date());
-  const earliest = new Date(Math.min(...taskDates.map((date) => date.getTime()), today.getTime()));
-  const latest = new Date(Math.max(...taskDates.map((date) => date.getTime()), today.getTime()));
-  const start = addDays(startOfDay(earliest), -7);
-  const end = addDays(startOfDay(latest), 7);
-
-  const days: Date[] = [];
-  const cursor = new Date(start);
-  while (cursor <= end) {
-    days.push(new Date(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  const dayIndexByKey = new Map(days.map((day, index) => [monthKey(day) + `-${pad(day.getDate())}`, index]));
-
-  const months: Array<{ key: string; label: string; startIndex: number; length: number }> = [];
-  let index = 0;
-  while (index < days.length) {
-    const currentKey = monthKey(days[index]);
-    const startIndex = index;
-    while (index < days.length && monthKey(days[index]) === currentKey) {
-      index += 1;
-    }
-    months.push({
-      key: currentKey,
-      label: formatMonth(days[startIndex]),
-      startIndex,
-      length: index - startIndex,
-    });
-  }
-
-  return { days, months, dayIndexByKey };
-}
-
-function daysSince(dateString: string) {
-  const target = parseDate(dateString);
-  const today = startOfDay(new Date());
-  const diff = today.getTime() - startOfDay(target).getTime();
-  return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
-}
-
-function cn(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
+// ---------- Main ----------
 
 export default function Home() {
-  const ganttScrollRef = useRef<HTMLDivElement | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [tab, setTab] = useState<Tab>("overview");
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [outreachItems, setOutreachItems] = useState<OutreachItem[]>([]);
-  const [selectedTaskId, setSelectedTaskId] = useState("");
-  const [selectedTypes, setSelectedTypes] = useState<TaskType[]>(["video", "prayer", "exercise", "outreach", "admin"]);
+  const [outreach, setOutreach] = useState<OutreachItem[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string>("");
+  const [selectedTypes, setSelectedTypes] = useState<TaskType[]>(ALL_TYPES);
   const [selectedTag, setSelectedTag] = useState<string>("all");
-  const [localNotes, setLocalNotes] = useState<Record<string, string>>({});
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [showAddOutreach, setShowAddOutreach] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const reloadTasks = () => getTasks().then(setTasks);
+  const reloadOutreach = () => getOutreachItems().then(setOutreach);
 
   useEffect(() => {
     startTransition(async () => {
-      const [fetchedTasks, fetchedOutreach] = await Promise.all([getTasks(), getOutreachItems()]);
-      setTasks(fetchedTasks);
-      setOutreachItems(fetchedOutreach);
-      if (fetchedTasks.length > 0 && !selectedTaskId) {
-        setSelectedTaskId(fetchedTasks[0].id);
-      }
-      setLocalNotes(Object.fromEntries(fetchedTasks.map((task) => [task.id, task.notes])));
+      const [t, o] = await Promise.all([getTasks(), getOutreachItems()]);
+      setTasks(t);
+      setOutreach(o);
+      setLoaded(true);
     });
-  }, [selectedTaskId]);
+  }, []);
 
-  const timeline = useMemo(() => (tasks.length > 0 ? buildTimeline(tasks) : { days: [], months: [], dayIndexByKey: new Map() }), [tasks]);
-
-  const allTags = useMemo(() => Array.from(new Set(tasks.flatMap((task) => task.tags))).sort((a, b) => a.localeCompare(b)), [tasks]);
-
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId);
-
-  const visibleTasks = tasks.filter((task) => {
-    const typeAllowed = selectedTypes.includes(task.type);
-    const tagAllowed = selectedTag === "all" || task.tags.includes(selectedTag);
-    return typeAllowed && tagAllowed;
-  });
-
-  const openOutreachItems = outreachItems.filter((item) => !item.done);
-  const waitingOnMe = openOutreachItems.filter((item) => item.owner === "me");
-  const waitingOnThem = openOutreachItems.filter((item) => item.owner === "them");
-  const staleInMyCourt = waitingOnMe.filter((item) => daysSince(item.lastAction) > 3).length;
-
-  const todayIndex =
-    timeline.dayIndexByKey.get(monthKey(startOfDay(new Date())) + `-${pad(new Date().getDate())}`) ?? -1;
-
-  const scrollToToday = useCallback(
-    (behavior: ScrollBehavior = "smooth") => {
-      const container = ganttScrollRef.current;
-      if (!container || todayIndex < 0) {
-        return;
-      }
-
-      const timelineOffset = TASK_COLUMN_WIDTH + todayIndex * CELL_WIDTH;
-      const targetLeft = Math.max(0, timelineOffset - container.clientWidth * 0.45);
-      container.scrollTo({ left: targetLeft, behavior });
-    },
-    [todayIndex],
+  const allTags = useMemo(
+    () => Array.from(new Set(tasks.flatMap((t) => t.tags))).sort((a, b) => a.localeCompare(b)),
+    [tasks],
   );
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      scrollToToday("auto");
-    }, 80);
+  const visibleTasks = useMemo(
+    () =>
+      tasks
+        .filter((t) => selectedTypes.includes(t.type))
+        .filter((t) => selectedTag === "all" || t.tags.includes(selectedTag))
+        .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)),
+    [tasks, selectedTypes, selectedTag],
+  );
 
-    return () => window.clearTimeout(timer);
-  }, [scrollToToday]);
+  const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
 
-  const toggleType = (type: TaskType) => {
-    setSelectedTypes((current) =>
-      current.includes(type) ? current.filter((entry) => entry !== type) : [...current, type],
-    );
-  };
+  const openOutreach = outreach.filter((o) => !o.done);
+  const waitingOnMe = openOutreach.filter((o) => o.owner === "me");
+  const waitingOnThem = openOutreach.filter((o) => o.owner === "them");
+  const staleCount = waitingOnMe.filter((o) => daysSince(o.lastAction) > 3).length;
 
-  const handleSubtaskToggle = (taskId: string, subtaskId: string, currentlyDone: boolean) => {
+  const activeCount = tasks.filter((t) => t.status !== "done").length;
+  const avgMonthly =
+    tasks.length === 0 ? 0 : Math.round(tasks.reduce((sum, t) => sum + monthPercent(t), 0) / tasks.length);
+
+  const focusTasks = visibleTasks.filter((t) => t.status === "in-progress" || t.status === "waiting");
+
+  // ---------- Mutations ----------
+  const withReload = (fn: () => Promise<unknown>, reload: () => Promise<void>) =>
     startTransition(async () => {
-      await updateSubtask(taskId, subtaskId, !currentlyDone);
-      const refreshed = await getTasks();
-      setTasks(refreshed);
+      await fn();
+      await reload();
     });
+
+  const handleStatus = (id: string, status: TaskStatus) =>
+    withReload(() => updateTaskStatus(id, status), reloadTasks);
+  const handleSubtask = (taskId: string, subtaskId: string, completed: boolean) =>
+    withReload(() => updateSubtask(taskId, subtaskId, completed), reloadTasks);
+  const handleProgress = (id: string, delta: number) =>
+    withReload(() => adjustMonthlyProgress(id, delta), reloadTasks);
+  const handleDeleteTask = (id: string) => {
+    setSelectedTaskId("");
+    withReload(() => deleteTask(id), reloadTasks);
   };
+  const handleOwner = (id: string, owner: InboxOwner) =>
+    withReload(() => updateOutreachOwner(id, owner, toDateString(startOfDay(new Date()))), reloadOutreach);
+  const handleOutreachDone = (id: string) => withReload(() => toggleOutreachDone(id), reloadOutreach);
+  const handleDeleteOutreach = (id: string) => withReload(() => deleteOutreach(id), reloadOutreach);
 
-  const handleStatusChange = (taskId: string, status: TaskStatus) => {
-    startTransition(async () => {
-      await updateTaskStatus(taskId, status);
-      const refreshed = await getTasks();
-      setTasks(refreshed);
-    });
-  };
-
-  const handleNotesBlur = (taskId: string, notes: string) => {
-    startTransition(async () => {
-      await updateTaskNotes(taskId, notes);
-    });
-  };
-
-  const handleOutreachOwnerChange = (itemId: string, owner: InboxOwner) => {
-    startTransition(async () => {
-      const today = startOfDay(new Date());
-      const dateString = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-      await updateOutreachOwner(itemId, owner, dateString);
-      const refreshed = await getOutreachItems();
-      setOutreachItems(refreshed);
-    });
-  };
-
-  const handleOutreachToggleDone = (itemId: string) => {
-    startTransition(async () => {
-      await toggleOutreachDone(itemId);
-      const refreshed = await getOutreachItems();
-      setOutreachItems(refreshed);
-    });
-  };
-
-  const selectedSubtasks = selectedTask?.subtasks ?? [];
-  const currentStepIndex = selectedSubtasks.findIndex((s) => !s.completed);
-  const activeStepIndex = currentStepIndex === -1 ? Math.max(selectedSubtasks.length - 1, 0) : currentStepIndex;
-  const doneCount = selectedSubtasks.filter((s) => s.completed).length;
-  const completionPercent = selectedSubtasks.length === 0 ? 0 : Math.round((doneCount / selectedSubtasks.length) * 100);
-
-  const selectedTypeMeta = selectedTask ? TASK_TYPE_META[selectedTask.type] : TASK_TYPE_META.video;
+  const today = startOfDay(new Date());
 
   return (
-    <main className="relative min-h-screen overflow-x-hidden bg-slate-950 text-slate-100">
-      {/* Animated background gradient orbs */}
+    <main className="relative min-h-screen overflow-x-hidden">
+      {/* Ambient background */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-40 -top-40 h-96 w-96 animate-pulse rounded-full bg-gradient-to-br from-cyan-500/20 to-transparent blur-3xl" />
-        <div className="absolute -right-40 top-1/3 h-96 w-96 animate-pulse rounded-full bg-gradient-to-bl from-fuchsia-500/20 to-transparent blur-3xl" style={{ animationDelay: "1s" }} />
-        <div className="absolute bottom-20 left-1/3 h-96 w-96 animate-pulse rounded-full bg-gradient-to-t from-amber-500/20 to-transparent blur-3xl" style={{ animationDelay: "2s" }} />
+        <div className="animate-float-slow absolute -left-32 -top-32 h-96 w-96 rounded-full bg-cyan-500/10 blur-3xl" />
+        <div className="animate-float-slow absolute -right-32 top-1/4 h-96 w-96 rounded-full bg-fuchsia-500/10 blur-3xl" style={{ animationDelay: "2s" }} />
+        <div className="animate-float-slow absolute bottom-10 left-1/3 h-96 w-96 rounded-full bg-amber-500/10 blur-3xl" style={{ animationDelay: "4s" }} />
       </div>
 
-      <div className="relative mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-        {/* Header with diagonal accent */}
-        <header className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900/90 via-slate-950/80 to-slate-900/90 p-8 backdrop-blur-xl">
-          <div className="absolute -right-32 -top-32 h-64 w-64 rounded-full bg-gradient-to-br from-cyan-500/20 to-fuchsia-500/20 blur-3xl" />
-          <div className="relative">
-            <div className="mb-2 inline-block rounded-full border border-cyan-400/30 bg-cyan-500/10 px-4 py-1 text-xs font-medium uppercase tracking-widest text-cyan-300">
-              Personal Planner
+      {/* Top navigation */}
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-fuchsia-500 text-sm font-bold text-white shadow-lg shadow-fuchsia-500/30">
+              R
             </div>
-            <h1 className="mb-3 max-w-3xl bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-4xl font-bold tracking-tight text-transparent sm:text-5xl">
-              Task rhythm dashboard
-            </h1>
-            <p className="max-w-2xl text-base leading-relaxed text-slate-300">
-              Gantt-style timeline • outreach pipeline • recurring goal tracking
-            </p>
-          </div>
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-              <p className="text-xs uppercase tracking-widest text-slate-400">Today</p>
-              <p className="mt-1 text-xl font-semibold text-white">{formatDate(startOfDay(new Date()))}</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-              <p className="text-xs uppercase tracking-widest text-slate-400">Visible tasks</p>
-              <p className="mt-1 text-xl font-semibold text-white">{visibleTasks.length}</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-              <p className="text-xs uppercase tracking-widest text-slate-400">Progress</p>
-              <p className="mt-1 text-xl font-semibold text-white">{completionPercent}%</p>
+            <div>
+              <p className="text-sm font-semibold text-white">Rhythm</p>
+              <p className="text-[11px] text-slate-500">Personal planner</p>
             </div>
           </div>
-        </header>
 
-        {/* Filters with asymmetric layout */}
-        <section className="rounded-3xl border border-white/10 bg-slate-900/50 p-6 backdrop-blur-xl">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-white">Filters</h2>
-            <div className="flex gap-2">
+          <nav className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 sm:flex">
+            {(["overview", "timeline", "outreach"] as Tab[]).map((t) => (
               <button
+                key={t}
                 type="button"
-                onClick={() => {
-                  setSelectedTypes(["video", "prayer", "exercise", "outreach", "admin"]);
-                  setSelectedTag("all");
-                }}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-slate-200 transition hover:border-white/20 hover:bg-white/10"
+                onClick={() => setTab(t)}
+                className={cn(
+                  "rounded-full px-4 py-1.5 text-sm font-medium capitalize transition",
+                  tab === t ? "bg-white/10 text-white shadow-sm" : "text-slate-400 hover:text-slate-200",
+                )}
               >
-                Reset
+                {t}
+                {t === "outreach" && staleCount > 0 && (
+                  <span className="ml-1.5 rounded-full bg-rose-500/80 px-1.5 text-[10px] text-white">{staleCount}</span>
+                )}
               </button>
-              <button
-                type="button"
-                onClick={() => scrollToToday()}
-                className="rounded-full border border-cyan-400/30 bg-cyan-500/10 px-4 py-1.5 text-sm text-cyan-100 transition hover:bg-cyan-500/20"
-              >
-                Jump to today
-              </button>
-            </div>
-          </div>
+            ))}
+          </nav>
 
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {(Object.entries(TASK_TYPE_META) as Array<[TaskType, TaskTypeMeta]>).map(([type, meta]) => {
+          <button
+            type="button"
+            onClick={() => (tab === "outreach" ? setShowAddOutreach(true) : setShowAddTask(true))}
+            className="rounded-full bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-4 py-1.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition hover:brightness-110"
+          >
+            + New
+          </button>
+        </div>
+
+        {/* Mobile tabs */}
+        <nav className="flex items-center gap-1 overflow-x-auto px-4 pb-3 sm:hidden">
+          {(["overview", "timeline", "outreach"] as Tab[]).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={cn(
+                "whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium capitalize transition",
+                tab === t ? "bg-white/10 text-white" : "text-slate-400",
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <div className="relative mx-auto max-w-6xl px-4 py-8 sm:px-6">
+        {!loaded && <p className="text-sm text-slate-500">Loading your planner…</p>}
+
+        {loaded && tab === "overview" && (
+          <div className="animate-fade-in space-y-8">
+            {/* Hero */}
+            <section>
+              <p className="text-sm text-slate-400">{formatLongDate(today)}</p>
+              <h1 className="mt-1 text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                Keep the rhythm going.
+              </h1>
+            </section>
+
+            {/* Stats */}
+            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="Active tasks" value={String(activeCount)} hint={`${tasks.length} total`} />
+              <StatCard label="Monthly progress" value={`${avgMonthly}%`} hint="avg across tasks" />
+              <StatCard label="Waiting on me" value={String(waitingOnMe.length)} hint={staleCount > 0 ? `${staleCount} stale` : "all fresh"} />
+              <StatCard label="Waiting on them" value={String(waitingOnThem.length)} hint="pending replies" />
+            </section>
+
+            {/* Today's focus */}
+            {focusTasks.length > 0 && (
+              <section>
+                <h2 className="mb-3 text-lg font-semibold text-white">Today&apos;s focus</h2>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {focusTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                    >
+                      <div className="relative flex-shrink-0">
+                        <ProgressRing percent={monthPercent(task)} gradientId={`focus-${task.id}`} />
+                        <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white">
+                          {monthPercent(task)}%
+                        </span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <TypeBadge type={task.type} />
+                        </div>
+                        <p className="mt-1 truncate font-medium text-white">{task.title}</p>
+                        <div className="mt-2 flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleProgress(task.id, 1)}
+                            disabled={isPending}
+                            className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20"
+                          >
+                            + Log
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTaskId(task.id)}
+                            className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-200 transition hover:bg-white/10"
+                          >
+                            Open
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Filters */}
+            <section className="flex flex-wrap items-center gap-2">
+              {ALL_TYPES.map((type) => {
                 const active = selectedTypes.includes(type);
+                const meta = TYPE_META[type];
                 return (
                   <button
                     key={type}
                     type="button"
-                    onClick={() => toggleType(type)}
+                    onClick={() =>
+                      setSelectedTypes((cur) =>
+                        cur.includes(type) ? cur.filter((x) => x !== type) : [...cur, type],
+                      )
+                    }
                     className={cn(
-                      "group relative overflow-hidden rounded-xl border px-4 py-2 text-sm font-medium transition-all",
-                      active
-                        ? `border-white/20 bg-gradient-to-r ${meta.gradient} shadow-lg ${meta.glow}`
-                        : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20",
+                      "rounded-full border px-3 py-1 text-xs font-medium transition",
+                      active ? meta.soft : "border-white/10 bg-white/5 text-slate-500 hover:text-slate-300",
                     )}
                   >
-                    <span className={active ? "text-white" : ""}>{meta.label}</span>
+                    {meta.icon} {meta.label}
                   </button>
                 );
               })}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
+              <span className="mx-1 h-4 w-px bg-white/10" />
               <button
                 type="button"
                 onClick={() => setSelectedTag("all")}
@@ -353,7 +350,7 @@ export default function Home() {
                   "rounded-full border px-3 py-1 text-xs transition",
                   selectedTag === "all"
                     ? "border-white/20 bg-white/10 text-white"
-                    : "border-white/10 bg-white/5 text-slate-400 hover:border-white/20",
+                    : "border-white/10 bg-white/5 text-slate-500 hover:text-slate-300",
                 )}
               >
                 All tags
@@ -367,375 +364,577 @@ export default function Home() {
                     "rounded-full border px-3 py-1 text-xs transition",
                     selectedTag === tag
                       ? "border-white/20 bg-white/10 text-white"
-                      : "border-white/10 bg-white/5 text-slate-400 hover:border-white/20",
+                      : "border-white/10 bg-white/5 text-slate-500 hover:text-slate-300",
                   )}
                 >
                   #{tag}
                 </button>
               ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Gantt chart with creative design */}
-        <section className="rounded-3xl border border-white/10 bg-slate-900/50 p-6 backdrop-blur-xl">
-          <h2 className="mb-4 text-lg font-semibold text-white">Timeline</h2>
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/80">
-            <div ref={ganttScrollRef} className="overflow-x-auto">
-              <div style={{ minWidth: `${TASK_COLUMN_WIDTH + timeline.days.length * CELL_WIDTH}px` }}>
-                {/* Month headers */}
-                <div
-                  className="grid border-b border-white/10 bg-slate-900/90 text-xs font-medium uppercase tracking-wider text-slate-400"
-                  style={{ gridTemplateColumns: `${TASK_COLUMN_WIDTH}px minmax(0, 1fr)` }}
-                >
-                  <div className="sticky left-0 z-20 border-r border-white/10 bg-slate-900/95 px-4 py-3">Tasks</div>
-                  <div className="flex">
-                    {timeline.months.map((month) => (
-                      <div
-                        key={month.key}
-                        className="border-l border-white/5 px-3 py-3"
-                        style={{ width: month.length * CELL_WIDTH }}
-                      >
-                        {month.label}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Day headers */}
-                <div
-                  className="grid border-b border-white/10 bg-slate-900/80"
-                  style={{ gridTemplateColumns: `${TASK_COLUMN_WIDTH}px minmax(0, 1fr)` }}
-                >
-                  <div className="sticky left-0 z-20 border-r border-white/10 bg-slate-900/90 px-4 py-2 text-[10px] uppercase tracking-wider text-slate-500">
-                    Status
-                  </div>
-                  <div className="grid" style={{ gridTemplateColumns: `repeat(${timeline.days.length}, ${CELL_WIDTH}px)` }}>
-                    {timeline.days.map((day) => (
-                      <div
-                        key={`day-${day.toISOString()}`}
-                        className={cn(
-                          "flex h-8 items-center justify-center border-l border-white/5 text-[9px] text-slate-500",
-                          day.getDate() === 1 && "bg-white/5 text-cyan-300",
-                        )}
-                      >
-                        {day.getDate()}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Task rows */}
-                {visibleTasks.map((task) => {
-                  const startIndex =
-                    timeline.dayIndexByKey.get(
-                      `${monthKey(parseDate(task.start))}-${pad(parseDate(task.start).getDate())}`,
-                    ) ?? 0;
-                  const endIndex =
-                    timeline.dayIndexByKey.get(
-                      `${monthKey(parseDate(task.end))}-${pad(parseDate(task.end).getDate())}`,
-                    ) ?? timeline.days.length - 1;
-                  const meta = TASK_TYPE_META[task.type];
-                  const selected = selectedTaskId === task.id;
-                  const taskDoneCount = task.subtasks.filter((s) => s.completed).length;
-                  const taskPercent =
-                    task.subtasks.length === 0 ? 0 : Math.round((taskDoneCount / task.subtasks.length) * 100);
-
-                  return (
-                    <button
-                      key={task.id}
-                      type="button"
-                      onClick={() => setSelectedTaskId(task.id)}
-                      className={cn(
-                        "grid w-full border-b border-white/10 text-left transition hover:bg-white/5",
-                        selected && "bg-cyan-500/10",
-                      )}
-                      style={{ gridTemplateColumns: `${TASK_COLUMN_WIDTH}px minmax(0, 1fr)` }}
-                    >
-                      <div className="sticky left-0 z-10 border-r border-white/10 bg-slate-950/95 px-3 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className={cn("h-2 w-2 rounded-full bg-gradient-to-br", meta.gradient)} />
-                          <span className="truncate text-sm font-medium text-white">{task.title}</span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-slate-400">
-                          <span className="capitalize">{task.cadence}</span>
-                          <span>·</span>
-                          <span>{taskPercent}%</span>
-                        </div>
-                      </div>
-
-                      <div className="relative min-h-[60px] px-0 py-0">
-                        <div
-                          className="grid h-full"
-                          style={{ gridTemplateColumns: `repeat(${timeline.days.length}, ${CELL_WIDTH}px)` }}
-                        >
-                          {timeline.days.map((day) => (
-                            <div
-                              key={`${task.id}-${day.toISOString()}`}
-                              className={cn(
-                                "border-l border-white/5",
-                                (day.getDay() === 0 || day.getDay() === 6) && "bg-white/[0.015]",
-                              )}
-                            />
-                          ))}
-                        </div>
-
-                        {/* Task bar */}
-                        <div
-                          className={cn(
-                            "pointer-events-none absolute top-2 rounded-lg border shadow-lg",
-                            task.status === "done"
-                              ? "border-emerald-400/30 bg-gradient-to-r from-emerald-500/20 to-teal-500/20"
-                              : task.status === "waiting"
-                                ? "border-fuchsia-400/30 bg-gradient-to-r from-fuchsia-500/20 to-pink-500/20"
-                                : `border-white/20 bg-gradient-to-r ${meta.gradient} opacity-80`,
-                          )}
-                          style={{
-                            left: `${startIndex * CELL_WIDTH + 2}px`,
-                            width: `${Math.max(1, endIndex - startIndex + 1) * CELL_WIDTH - 4}px`,
-                            height: "calc(100% - 16px)",
-                          }}
-                        >
-                          <div className="flex h-full flex-col justify-center px-2">
-                            <p className="truncate text-[10px] font-semibold text-white">{task.title}</p>
-                          </div>
-                        </div>
-
-                        {/* Today line */}
-                        {todayIndex >= 0 && (
-                          <div
-                            className="pointer-events-none absolute inset-y-0 z-10 w-0.5 bg-rose-400 shadow-[0_0_12px_rgba(251,113,133,0.8)]"
-                            style={{ left: `${todayIndex * CELL_WIDTH}px` }}
-                          />
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Split view: Task details + Outreach inbox */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Task details sidebar - redesigned as card */}
-          {selectedTask && (
-            <section className="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900/90 via-slate-950/80 to-slate-900/90 p-6 backdrop-blur-xl">
-              <div className="mb-4 flex items-start justify-between">
-                <div>
-                  <div className={cn("mb-2 inline-block rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider", `border-white/20 bg-gradient-to-r ${selectedTypeMeta.gradient} text-white`)}>
-                    {selectedTask.type}
-                  </div>
-                  <h2 className="text-2xl font-bold text-white">{selectedTask.title}</h2>
-                  <p className="mt-1 text-sm text-slate-400">{selectedTypeMeta.description}</p>
-                </div>
-              </div>
-
-              <div className="mb-4 space-y-2">
-                <div className="flex items-center justify-between text-sm text-slate-300">
-                  <span>Progress</span>
-                  <span className="font-semibold">{completionPercent}%</span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className={cn("h-full rounded-full bg-gradient-to-r", selectedTypeMeta.gradient)}
-                    style={{ width: `${completionPercent}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className="mb-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleStatusChange(selectedTask.id, "done")}
-                  className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:bg-emerald-500/20"
-                  disabled={isPending}
-                >
-                  Done
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStatusChange(selectedTask.id, "waiting")}
-                  className="rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/10 px-3 py-1.5 text-xs font-medium text-fuchsia-100 transition hover:bg-fuchsia-500/20"
-                  disabled={isPending}
-                >
-                  Waiting
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStatusChange(selectedTask.id, "postponed")}
-                  className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-100 transition hover:bg-amber-500/20"
-                  disabled={isPending}
-                >
-                  Postpone
-                </button>
-              </div>
-
-              <div className="mb-4">
-                <h3 className="mb-2 text-sm font-semibold text-white">Subtasks</h3>
-                <div className="space-y-2">
-                  {selectedSubtasks.map((subtask, index) => {
-                    const current = index === activeStepIndex;
-                    return (
-                      <label
-                        key={subtask.id}
-                        className={cn(
-                          "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition",
-                          subtask.completed
-                            ? "border-emerald-400/20 bg-emerald-500/10"
-                            : current
-                              ? "border-cyan-400/30 bg-cyan-500/10"
-                              : "border-white/10 bg-white/5 hover:border-white/20",
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={subtask.completed}
-                          onChange={() => handleSubtaskToggle(selectedTask.id, subtask.id, subtask.completed)}
-                          className="mt-0.5 h-4 w-4 rounded border-white/20"
-                          disabled={isPending}
-                        />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-white">{subtask.title}</p>
-                          <p className="mt-0.5 text-xs text-slate-400">{subtask.note}</p>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-white">Notes</h3>
-                <textarea
-                  value={localNotes[selectedTask.id] ?? ""}
-                  onChange={(e) => setLocalNotes((prev) => ({ ...prev, [selectedTask.id]: e.target.value }))}
-                  onBlur={(e) => handleNotesBlur(selectedTask.id, e.target.value)}
-                  className="min-h-32 w-full rounded-xl border border-white/10 bg-slate-950/80 p-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400/50"
-                  placeholder="Add notes..."
-                  disabled={isPending}
-                />
-              </div>
             </section>
-          )}
 
-          {/* Outreach inbox - more creative layout */}
-          <section className="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900/90 via-slate-950/80 to-slate-900/90 p-6 backdrop-blur-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Outreach Inbox</h2>
-              {staleInMyCourt > 0 && (
-                <span className="rounded-full border border-rose-400/30 bg-rose-500/10 px-3 py-1 text-xs text-rose-200">
-                  {staleInMyCourt} stale
-                </span>
-              )}
-            </div>
+            {/* Task grid */}
+            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleTasks.map((task) => {
+                const meta = TYPE_META[task.type];
+                const mPercent = monthPercent(task);
+                const sPercent = subtaskPercent(task);
+                const mp = task.monthlyProgress[currentMonthKey()];
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => setSelectedTaskId(task.id)}
+                    className="group flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/20 hover:bg-white/[0.06]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <TypeBadge type={task.type} />
+                      <StatusBadge status={task.status} />
+                    </div>
+                    <p className="mt-3 font-semibold text-white">{task.title}</p>
+                    <p className="mt-1 text-xs text-slate-500">{meta.description}</p>
 
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/5 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-cyan-100">Waiting on me</h3>
-                  <span className="rounded-full bg-cyan-400/20 px-2 py-0.5 text-xs text-cyan-100">
-                    {waitingOnMe.length}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {waitingOnMe.length === 0 ? (
-                    <p className="text-center text-sm text-slate-400">All clear!</p>
-                  ) : (
-                    waitingOnMe.map((item) => (
-                      <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
-                        <div className="mb-2 flex items-start justify-between">
-                          <div>
-                            <p className="font-medium text-white">{item.name}</p>
-                            <p className="text-xs text-cyan-200">{item.topic}</p>
-                          </div>
-                          <span
-                            className={cn(
-                              "rounded-full px-2 py-0.5 text-[10px]",
-                              daysSince(item.lastAction) > 3
-                                ? "bg-rose-500/20 text-rose-200"
-                                : "bg-white/10 text-slate-300",
-                            )}
-                          >
-                            {daysSince(item.lastAction)}d
-                          </span>
-                        </div>
-                        <p className="mb-3 text-xs leading-relaxed text-slate-300">{item.nextAction}</p>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleOutreachOwnerChange(item.id, "them")}
-                            className="rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/10 px-3 py-1 text-xs text-fuchsia-100 transition hover:bg-fuchsia-500/20"
-                            disabled={isPending}
-                          >
-                            → Them
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOutreachToggleDone(item.id)}
-                            className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20"
-                            disabled={isPending}
-                          >
-                            ✓ Done
-                          </button>
-                        </div>
+                    <div className="mt-4 space-y-1">
+                      <div className="flex items-center justify-between text-xs text-slate-400">
+                        <span className="capitalize">{task.cadence} target</span>
+                        <span className="font-medium text-slate-200">
+                          {mp ? `${mp.completed}/${mp.target}` : `0/${task.targetPerMonth}`}
+                        </span>
                       </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/5 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-fuchsia-100">Waiting on them</h3>
-                  <span className="rounded-full bg-fuchsia-400/20 px-2 py-0.5 text-xs text-fuchsia-100">
-                    {waitingOnThem.length}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {waitingOnThem.length === 0 ? (
-                    <p className="text-center text-sm text-slate-400">No pending replies</p>
-                  ) : (
-                    waitingOnThem.map((item) => (
-                      <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
-                        <div className="mb-2 flex items-start justify-between">
-                          <div>
-                            <p className="font-medium text-white">{item.name}</p>
-                            <p className="text-xs text-fuchsia-200">{item.topic}</p>
-                          </div>
-                          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-300">
-                            {daysSince(item.lastAction)}d
-                          </span>
-                        </div>
-                        <p className="mb-3 text-xs leading-relaxed text-slate-300">{item.nextAction}</p>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleOutreachOwnerChange(item.id, "me")}
-                            className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20"
-                            disabled={isPending}
-                          >
-                            → Me
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOutreachToggleDone(item.id)}
-                            className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20"
-                            disabled={isPending}
-                          >
-                            ✓ Done
-                          </button>
-                        </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className={cn("h-full rounded-full bg-gradient-to-r", meta.gradient)}
+                          style={{ width: `${mPercent}%` }}
+                        />
                       </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
+                    </div>
+
+                    {task.subtasks.length > 0 && (
+                      <p className="mt-3 text-xs text-slate-500">
+                        {task.subtasks.filter((s) => s.completed).length}/{task.subtasks.length} steps · {sPercent}%
+                      </p>
+                    )}
+
+                    {task.tags.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1">
+                        {task.tags.slice(0, 3).map((tag) => (
+                          <span key={tag} className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-400">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </section>
+          </div>
+        )}
+
+        {loaded && tab === "timeline" && (
+          <div className="animate-fade-in">
+            <Timeline tasks={visibleTasks} selectedTaskId={selectedTaskId} onSelectAction={setSelectedTaskId} />
+          </div>
+        )}
+
+        {loaded && tab === "outreach" && (
+          <div className="animate-fade-in grid gap-6 lg:grid-cols-2">
+            <OutreachColumn
+              title="Waiting on me"
+              accent="text-cyan-200"
+              items={waitingOnMe}
+              moveLabel="→ Them"
+              onMove={(id) => handleOwner(id, "them")}
+              onDone={handleOutreachDone}
+              onDelete={handleDeleteOutreach}
+              highlightStale
+              isPending={isPending}
+            />
+            <OutreachColumn
+              title="Waiting on them"
+              accent="text-fuchsia-200"
+              items={waitingOnThem}
+              moveLabel="→ Me"
+              onMove={(id) => handleOwner(id, "me")}
+              onDone={handleOutreachDone}
+              onDelete={handleDeleteOutreach}
+              isPending={isPending}
+            />
+          </div>
+        )}
       </div>
+
+      {/* Task detail drawer */}
+      {selectedTask && (
+        <TaskDrawer
+          key={selectedTask.id}
+          task={selectedTask}
+          isPending={isPending}
+          onClose={() => setSelectedTaskId("")}
+          onStatus={handleStatus}
+          onSubtask={handleSubtask}
+          onProgress={handleProgress}
+          onDelete={handleDeleteTask}
+          onSaveNotes={(id, notes) => startTransition(async () => { await updateTaskNotes(id, notes); })}
+          onRenameTask={(id, title) => withReload(() => updateTaskTitle(id, title), reloadTasks)}
+          onAddSubtask={(id, title) => withReload(() => addSubtask(id, title), reloadTasks)}
+        />
+      )}
+
+      {showAddTask && (
+        <AddTaskDialog
+          isPending={isPending}
+          onClose={() => setShowAddTask(false)}
+          onCreate={(input) =>
+            startTransition(async () => {
+              await createTask(input);
+              await reloadTasks();
+              setShowAddTask(false);
+            })
+          }
+        />
+      )}
+
+      {showAddOutreach && (
+        <AddOutreachDialog
+          isPending={isPending}
+          onClose={() => setShowAddOutreach(false)}
+          onCreate={(input) =>
+            startTransition(async () => {
+              await createOutreach(input);
+              await reloadOutreach();
+              setShowAddOutreach(false);
+            })
+          }
+        />
+      )}
     </main>
+  );
+}
+
+// ---------- Outreach column ----------
+
+function OutreachColumn({
+  title,
+  accent,
+  items,
+  moveLabel,
+  onMove,
+  onDone,
+  onDelete,
+  isPending,
+  highlightStale,
+}: {
+  title: string;
+  accent: string;
+  items: OutreachItem[];
+  moveLabel: string;
+  onMove: (id: string) => void;
+  onDone: (id: string) => void;
+  onDelete: (id: string) => void;
+  isPending: boolean;
+  highlightStale?: boolean;
+}) {
+  return (
+    <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className={cn("text-sm font-semibold", accent)}>{title}</h2>
+        <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300">{items.length}</span>
+      </div>
+      <div className="space-y-2">
+        {items.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-white/10 py-6 text-center text-sm text-slate-500">
+            Nothing here.
+          </p>
+        ) : (
+          items.map((item) => {
+            const stale = highlightStale && daysSince(item.lastAction) > 3;
+            return (
+              <div key={item.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-white">{item.name}</p>
+                    <p className="truncate text-xs text-slate-400">{item.topic}</p>
+                  </div>
+                  <span
+                    className={cn(
+                      "flex-shrink-0 rounded-full px-2 py-0.5 text-[10px]",
+                      stale ? "bg-rose-500/20 text-rose-200" : "bg-white/10 text-slate-400",
+                    )}
+                  >
+                    {daysSince(item.lastAction)}d
+                  </span>
+                </div>
+                <p className="mb-3 text-xs leading-relaxed text-slate-300">{item.nextAction}</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onMove(item.id)}
+                    disabled={isPending}
+                    className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-200 transition hover:bg-white/10"
+                  >
+                    {moveLabel}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDone(item.id)}
+                    disabled={isPending}
+                    className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20"
+                  >
+                    ✓ Done
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(item.id)}
+                    disabled={isPending}
+                    className="ml-auto rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-400 transition hover:border-rose-400/30 hover:text-rose-200"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ---------- Task drawer ----------
+
+function TaskDrawer({
+  task,
+  isPending,
+  onClose,
+  onStatus,
+  onSubtask,
+  onProgress,
+  onDelete,
+  onSaveNotes,
+  onRenameTask,
+  onAddSubtask,
+}: {
+  task: Task;
+  isPending: boolean;
+  onClose: () => void;
+  onStatus: (id: string, status: TaskStatus) => void;
+  onSubtask: (taskId: string, subtaskId: string, completed: boolean) => void;
+  onProgress: (id: string, delta: number) => void;
+  onDelete: (id: string) => void;
+  onSaveNotes: (id: string, notes: string) => void;
+  onRenameTask: (id: string, title: string) => void;
+  onAddSubtask: (id: string, title: string) => void;
+}) {
+  const meta = TYPE_META[task.type];
+  const [notes, setNotes] = useState(task.notes);
+  const [title, setTitle] = useState(task.title);
+  const [newSubtask, setNewSubtask] = useState("");
+  const mp = task.monthlyProgress[currentMonthKey()];
+  const mPercent = monthPercent(task);
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <aside className="animate-fade-in relative flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-white/10 bg-slate-950/95 p-6">
+        <div className="mb-4 flex items-start justify-between gap-2">
+          <TypeBadge type={task.type} />
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-400 transition hover:text-white"
+          >
+            Close ✕
+          </button>
+        </div>
+
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onBlur={() => title.trim() && title !== task.title && onRenameTask(task.id, title)}
+          className="w-full rounded-lg border border-transparent bg-transparent text-xl font-bold text-white outline-none transition focus:border-white/10 focus:bg-white/5 focus:px-2"
+        />
+        <p className="mt-1 text-sm text-slate-500">{meta.description}</p>
+
+        {/* Monthly progress */}
+        <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-300 capitalize">{task.cadence} progress</span>
+            <span className="font-semibold text-white">
+              {mp ? `${mp.completed}/${mp.target}` : `0/${task.targetPerMonth}`}
+            </span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+            <div className={cn("h-full rounded-full bg-gradient-to-r", meta.gradient)} style={{ width: `${mPercent}%` }} />
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => onProgress(task.id, -1)}
+              disabled={isPending}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-200 transition hover:bg-white/10"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              onClick={() => onProgress(task.id, 1)}
+              disabled={isPending}
+              className="flex-1 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-sm text-emerald-100 transition hover:bg-emerald-500/20"
+            >
+              + Log progress
+            </button>
+          </div>
+        </div>
+
+        {/* Status */}
+        <div className="mt-5">
+          <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">Status</p>
+          <div className="flex flex-wrap gap-2">
+            {STATUS_ORDER.map((s) => {
+              const sm = STATUS_META[s];
+              const active = task.status === s;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => onStatus(task.id, s)}
+                  disabled={isPending}
+                  className={cn(
+                    "rounded-lg border px-2.5 py-1 text-xs font-medium transition",
+                    active ? sm.soft : "border-white/10 bg-white/5 text-slate-400 hover:text-slate-200",
+                  )}
+                >
+                  {sm.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Subtasks */}
+        <div className="mt-5">
+          <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">Steps</p>
+          <div className="space-y-2">
+            {task.subtasks.map((subtask) => (
+              <label
+                key={subtask.id}
+                className={cn(
+                  "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition",
+                  subtask.completed
+                    ? "border-emerald-400/20 bg-emerald-500/10"
+                    : "border-white/10 bg-white/5 hover:border-white/20",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={subtask.completed}
+                  onChange={() => onSubtask(task.id, subtask.id, !subtask.completed)}
+                  disabled={isPending}
+                  className="mt-0.5 h-4 w-4 rounded border-white/20 accent-emerald-500"
+                />
+                <div className="flex-1">
+                  <p className={cn("text-sm font-medium", subtask.completed ? "text-slate-400 line-through" : "text-white")}>
+                    {subtask.title}
+                  </p>
+                  {subtask.note && <p className="mt-0.5 text-xs text-slate-500">{subtask.note}</p>}
+                </div>
+              </label>
+            ))}
+          </div>
+          <form
+            className="mt-2 flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (newSubtask.trim()) {
+                onAddSubtask(task.id, newSubtask);
+                setNewSubtask("");
+              }
+            }}
+          >
+            <input
+              value={newSubtask}
+              onChange={(e) => setNewSubtask(e.target.value)}
+              placeholder="Add a step…"
+              className="flex-1 rounded-lg border border-white/10 bg-slate-950/60 px-3 py-1.5 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/50"
+            />
+            <button
+              type="submit"
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10"
+            >
+              Add
+            </button>
+          </form>
+        </div>
+
+        {/* Notes */}
+        <div className="mt-5">
+          <p className="mb-2 text-xs uppercase tracking-widest text-slate-500">Notes</p>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            onBlur={() => onSaveNotes(task.id, notes)}
+            placeholder="Add notes…"
+            className="min-h-28 w-full rounded-xl border border-white/10 bg-slate-950/60 p-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-400/50"
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onDelete(task.id)}
+          disabled={isPending}
+          className="mt-6 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-400 transition hover:border-rose-400/30 hover:text-rose-200"
+        >
+          Delete task
+        </button>
+      </aside>
+    </div>
+  );
+}
+
+// ---------- Add task dialog ----------
+
+function Modal({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="animate-fade-in relative w-full max-w-md rounded-2xl border border-white/10 bg-slate-950/95 p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white">{title}</h2>
+          <button type="button" onClick={onClose} className="text-slate-500 transition hover:text-white">
+            ✕
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const inputClass =
+  "w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/50";
+
+function AddTaskDialog({
+  onClose,
+  onCreate,
+  isPending,
+}: {
+  onClose: () => void;
+  onCreate: (input: { title: string; type: TaskType; cadence: TaskCadence; tags: string[]; targetPerMonth: number }) => void;
+  isPending: boolean;
+}) {
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState<TaskType>("video");
+  const [cadence, setCadence] = useState<TaskCadence>("monthly");
+  const [tags, setTags] = useState("");
+  const [target, setTarget] = useState(1);
+
+  return (
+    <Modal title="New task" onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!title.trim()) return;
+          onCreate({
+            title,
+            type,
+            cadence,
+            tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+            targetPerMonth: Math.max(1, target),
+          });
+        }}
+      >
+        <div>
+          <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Title</label>
+          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. August video: idea → upload" className={inputClass} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Type</label>
+            <select value={type} onChange={(e) => setType(e.target.value as TaskType)} className={inputClass}>
+              {ALL_TYPES.map((t) => (
+                <option key={t} value={t} className="bg-slate-900">
+                  {TYPE_META[t].label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Cadence</label>
+            <select value={cadence} onChange={(e) => setCadence(e.target.value as TaskCadence)} className={inputClass}>
+              {(["one-off", "daily", "weekly", "monthly"] as TaskCadence[]).map((c) => (
+                <option key={c} value={c} className="bg-slate-900">
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Monthly target</label>
+            <input type="number" min={1} value={target} onChange={(e) => setTarget(Number(e.target.value))} className={inputClass} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Tags (comma sep)</label>
+            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="health, recurring" className={inputClass} />
+          </div>
+        </div>
+        <button
+          type="submit"
+          disabled={isPending || !title.trim()}
+          className="w-full rounded-lg bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+        >
+          Create task
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+function AddOutreachDialog({
+  onClose,
+  onCreate,
+  isPending,
+}: {
+  onClose: () => void;
+  onCreate: (input: { name: string; topic: string; nextAction: string }) => void;
+  isPending: boolean;
+}) {
+  const [name, setName] = useState("");
+  const [topic, setTopic] = useState("");
+  const [nextAction, setNextAction] = useState("");
+
+  return (
+    <Modal title="New outreach" onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!name.trim()) return;
+          onCreate({ name, topic, nextAction });
+        }}
+      >
+        <div>
+          <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Name</label>
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. redacted" className={inputClass} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Topic</label>
+          <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. Redacted" className={inputClass} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs uppercase tracking-widest text-slate-500">Next action</label>
+          <textarea value={nextAction} onChange={(e) => setNextAction(e.target.value)} placeholder="Send update and ask for timeline." className={cn(inputClass, "min-h-20")} />
+        </div>
+        <button
+          type="submit"
+          disabled={isPending || !name.trim()}
+          className="w-full rounded-lg bg-gradient-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+        >
+          Add contact
+        </button>
+      </form>
+    </Modal>
   );
 }

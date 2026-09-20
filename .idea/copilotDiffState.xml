@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CopilotDiffPersistence">
+    <option name="pendingDiffs">
+      <map>
+        <entry key="$PROJECT_DIR$/app/actions/auth.ts">
+          <value>
+            <PendingDiffInfo>
+              <option name="filePath" value="$PROJECT_DIR$/app/actions/auth.ts" />
+              <option name="newFile" value="true" />
+              <option name="updatedContent" value="&quot;use server&quot;;&#10;&#10;import { redirect } from &quot;next/navigation&quot;;&#10;import { deleteUserSession } from &quot;@/lib/auth&quot;;&#10;&#10;export async function logoutAction() {&#10;  await deleteUserSession();&#10;  redirect(&quot;/login&quot;);&#10;}&#10;" />
+            </PendingDiffInfo>
+          </value>
+        </entry>
+        <entry key="$PROJECT_DIR$/proxy.ts">
+          <value>
+            <PendingDiffInfo>
+              <option name="filePath" value="$PROJECT_DIR$/proxy.ts" />
+              <option name="newFile" value="true" />
+              <option name="updatedContent" value="import type { NextRequest } from &quot;next/server&quot;;&#10;import { NextResponse } from &quot;next/server&quot;;&#10;import { SESSION_COOKIE_NAME, verifySessionToken } from &quot;@/lib/auth-token&quot;;&#10;&#10;function getAuthSecret() {&#10;  return process.env.AUTH_SECRET ?? process.env.SESSION_SECRET ?? &quot;dev-insecure-secret-change-me&quot;;&#10;}&#10;&#10;export default function proxy(request: NextRequest) {&#10;  const pathname = request.nextUrl.pathname;&#10;  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;&#10;  const session = token ? verifySessionToken(token, getAuthSecret()) : null;&#10;&#10;  if (pathname === &quot;/login&quot;) {&#10;    if (session) {&#10;      return NextResponse.redirect(new URL(&quot;/&quot;, request.url));&#10;    }&#10;    return NextResponse.next();&#10;  }&#10;&#10;  if (!session) {&#10;    return NextResponse.redirect(new URL(&quot;/login&quot;, request.url));&#10;  }&#10;&#10;  return NextResponse.next();&#10;}&#10;&#10;export const config = {&#10;  matcher: [&quot;/((?!api|_next/static|_next/image|.*\\..*).*)&quot;],&#10;};&#10;" />
+            </PendingDiffInfo>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>

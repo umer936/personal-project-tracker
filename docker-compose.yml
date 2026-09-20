@@ -1,41 +1,17 @@
-version: '3.8'
-
 services:
-  postgres:
-    image: postgres:17-alpine
-    container_name: planner-db
-    environment:
-      POSTGRES_USER: planner
-      POSTGRES_PASSWORD: planner_dev_password
-      POSTGRES_DB: planner
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U planner"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: planner-app
     ports:
-      - "3003:3000"
+      - "3003:3003"
     environment:
-      DATABASE_URL: postgresql://planner:planner_dev_password@postgres:5432/planner
       NODE_ENV: development
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
+      # Mount source for live reload, but keep container's node_modules/.next
       - .:/app
       - /app/node_modules
       - /app/.next
     command: npm run dev
-
-volumes:
-  postgres_data:
+    restart: unless-stopped
