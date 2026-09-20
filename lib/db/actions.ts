@@ -92,6 +92,37 @@ export async function adjustMonthCount(goalId: string, monthKey: string, delta: 
   await writeDatabase(database);
 }
 
+// Add a labeled entry to a count goal that records what you did (book read,
+// craft made). The month count is derived from the number of entries.
+export async function addMonthEntry(goalId: string, monthKey: string, label: string) {
+  const trimmed = label.trim();
+  if (!trimmed) return;
+  const database = await readDatabase();
+  mapGoal(database, goalId, (goal) => {
+    const state = goal.months[monthKey] ?? {};
+    const entries = [...(state.entries ?? []), trimmed];
+    return {
+      ...goal,
+      months: { ...goal.months, [monthKey]: { ...state, entries, count: entries.length } },
+    };
+  });
+  await writeDatabase(database);
+}
+
+// Remove one labeled entry by index.
+export async function removeMonthEntry(goalId: string, monthKey: string, index: number) {
+  const database = await readDatabase();
+  mapGoal(database, goalId, (goal) => {
+    const state = goal.months[monthKey] ?? {};
+    const entries = (state.entries ?? []).filter((_, i) => i !== index);
+    return {
+      ...goal,
+      months: { ...goal.months, [monthKey]: { ...state, entries, count: entries.length } },
+    };
+  });
+  await writeDatabase(database);
+}
+
 // Toggle a project step for a given month (YouTube pipeline). Steps are
 // initialised from the goal's template the first time a month is touched.
 export async function toggleProjectStep(goalId: string, monthKey: string, stepId: string) {
@@ -121,6 +152,7 @@ export async function createGoal(input: {
   perDay?: number;
   monthlyTarget?: number;
   unit?: string;
+  logEntries?: boolean;
   stepTemplate?: string[];
 }) {
   const database = await readDatabase();
@@ -133,6 +165,7 @@ export async function createGoal(input: {
     perDay: input.type === "daily" ? input.perDay ?? 1 : undefined,
     monthlyTarget: input.type === "count" ? input.monthlyTarget ?? 1 : undefined,
     unit: input.type === "count" ? input.unit ?? "times" : undefined,
+    logEntries: input.type === "count" ? input.logEntries ?? false : undefined,
     stepTemplate:
       input.type === "project"
         ? input.stepTemplate ?? ["Idea", "Draft", "Finish"]

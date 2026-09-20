@@ -12,6 +12,7 @@ import type {
 } from "@/lib/db/schema";
 import {
   adjustMonthCount,
+  addMonthEntry,
   createGoal,
   createOutreach,
   deleteGoal,
@@ -19,6 +20,7 @@ import {
   getGoals,
   getOutreachItems,
   logOutreachTouch,
+  removeMonthEntry,
   setDailyCount,
   setOutreachStage,
   snoozeOutreach,
@@ -44,7 +46,17 @@ import {
 
 type Tab = "goals" | "outreach";
 
-const CATEGORIES: GoalCategory[] = ["prayer", "exercise", "stretch", "reading", "video", "other"];
+const CATEGORIES: GoalCategory[] = [
+  "prayer",
+  "exercise",
+  "stretch",
+  "reading",
+  "video",
+  "blog",
+  "craft",
+  "finance",
+  "other",
+];
 
 // ---------- Goal math ----------
 
@@ -64,7 +76,13 @@ function dailyTarget(goal: Goal, monthKey: string) {
 }
 
 function countDone(goal: Goal, monthKey: string) {
-  return goal.months[monthKey]?.count ?? 0;
+  const state = goal.months[monthKey];
+  if (goal.logEntries) return state?.entries?.length ?? 0;
+  return state?.count ?? 0;
+}
+
+function countEntries(goal: Goal, monthKey: string): string[] {
+  return goal.months[monthKey]?.entries ?? [];
 }
 
 function projectSteps(goal: Goal, monthKey: string): GoalStep[] {
@@ -195,6 +213,10 @@ export default function Home() {
     withReload(() => setDailyCount(goalId, dateKey, count), reloadGoals);
   const handleCount = (goalId: string, delta: number) =>
     withReload(() => adjustMonthCount(goalId, monthKey, delta), reloadGoals);
+  const handleAddEntry = (goalId: string, label: string) =>
+    withReload(() => addMonthEntry(goalId, monthKey, label), reloadGoals);
+  const handleRemoveEntry = (goalId: string, index: number) =>
+    withReload(() => removeMonthEntry(goalId, monthKey, index), reloadGoals);
   const handleStep = (goalId: string, stepId: string) =>
     withReload(() => toggleProjectStep(goalId, monthKey, stepId), reloadGoals);
   const handleDeleteGoal = (goalId: string) => withReload(() => deleteGoal(goalId), reloadGoals);
@@ -327,6 +349,8 @@ export default function Home() {
                   isPending={isPending}
                   onSetDay={handleSetDay}
                   onCount={handleCount}
+                  onAddEntry={handleAddEntry}
+                  onRemoveEntry={handleRemoveEntry}
                   onStep={handleStep}
                   onDelete={handleDeleteGoal}
                 />
@@ -428,6 +452,8 @@ function GoalCard({
   isPending,
   onSetDay,
   onCount,
+  onAddEntry,
+  onRemoveEntry,
   onStep,
   onDelete,
 }: {
@@ -437,6 +463,8 @@ function GoalCard({
   isPending: boolean;
   onSetDay: (goalId: string, dateKey: string, count: number) => void;
   onCount: (goalId: string, delta: number) => void;
+  onAddEntry: (goalId: string, label: string) => void;
+  onRemoveEntry: (goalId: string, index: number) => void;
   onStep: (goalId: string, stepId: string) => void;
   onDelete: (goalId: string) => void;
 }) {
@@ -471,7 +499,7 @@ function GoalCard({
         <DailyGoalBody goal={goal} monthKey={monthKey} isCurrentMonth={isCurrentMonth} isPending={isPending} onSetDay={onSetDay} percent={percent} meta={meta} />
       )}
       {goal.type === "count" && (
-        <CountGoalBody goal={goal} monthKey={monthKey} isPending={isPending} onCount={onCount} percent={percent} meta={meta} />
+        <CountGoalBody goal={goal} monthKey={monthKey} isPending={isPending} onCount={onCount} onAddEntry={onAddEntry} onRemoveEntry={onRemoveEntry} percent={percent} meta={meta} />
       )}
       {goal.type === "project" && (
         <ProjectGoalBody goal={goal} monthKey={monthKey} isPending={isPending} onStep={onStep} percent={percent} meta={meta} />
@@ -589,6 +617,8 @@ function CountGoalBody({
   monthKey,
   isPending,
   onCount,
+  onAddEntry,
+  onRemoveEntry,
   percent,
   meta,
 }: {
@@ -596,6 +626,8 @@ function CountGoalBody({
   monthKey: string;
   isPending: boolean;
   onCount: (goalId: string, delta: number) => void;
+  onAddEntry: (goalId: string, label: string) => void;
+  onRemoveEntry: (goalId: string, index: number) => void;
   percent: number;
   meta: (typeof CATEGORY_META)[GoalCategory];
 }) {
@@ -603,6 +635,7 @@ function CountGoalBody({
   const done = countDone(goal, monthKey);
   const unit = goal.unit ?? "times";
   const complete = done >= target;
+  const [entry, setEntry] = useState("");
 
   return (
     <div className="space-y-4">
@@ -623,14 +656,61 @@ function CountGoalBody({
 
       <Bar percent={percent} gradient={meta.gradient} />
 
-      <div className="flex gap-2">
-        <button type="button" disabled={isPending || done === 0} onClick={() => onCount(goal.id, -1)} className="rounded-lg border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-slate-200 transition hover:bg-white/10 disabled:opacity-40">
-          −
-        </button>
-        <button type="button" disabled={isPending} onClick={() => onCount(goal.id, 1)} className={cn("flex-1 rounded-lg border border-transparent bg-linear-to-r px-4 py-1.5 text-sm font-medium text-white transition hover:brightness-110", meta.gradient)}>
-          + Log {unit.replace(/s$/, "")}
-        </button>
-      </div>
+      {goal.logEntries ? (
+        <div className="space-y-3">
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!entry.trim()) return;
+              onAddEntry(goal.id, entry);
+              setEntry("");
+            }}
+          >
+            <input
+              value={entry}
+              onChange={(e) => setEntry(e.target.value)}
+              placeholder={goal.category === "reading" ? "Book you read…" : "What you made…"}
+              className={cn(inputClass, "py-1.5")}
+            />
+            <button
+              type="submit"
+              disabled={isPending || !entry.trim()}
+              className={cn("shrink-0 rounded-lg border border-transparent bg-linear-to-r px-4 py-1.5 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-40", meta.gradient)}
+            >
+              + Log
+            </button>
+          </form>
+
+          {countEntries(goal, monthKey).length > 0 && (
+            <ul className="space-y-1.5">
+              {countEntries(goal, monthKey).map((label, i) => (
+                <li key={`${label}-${i}`} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5">
+                  <span className="min-w-0 truncate text-sm text-slate-200">{label}</span>
+                  <button
+                    type="button"
+                    disabled={isPending}
+                    onClick={() => onRemoveEntry(goal.id, i)}
+                    className="shrink-0 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-slate-500 transition hover:border-rose-400/30 hover:text-rose-200 disabled:opacity-40"
+                    title="Remove"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <button type="button" disabled={isPending || done === 0} onClick={() => onCount(goal.id, -1)} className="rounded-lg border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-slate-200 transition hover:bg-white/10 disabled:opacity-40">
+            −
+          </button>
+          <button type="button" disabled={isPending} onClick={() => onCount(goal.id, 1)} className={cn("flex-1 rounded-lg border border-transparent bg-linear-to-r px-4 py-1.5 text-sm font-medium text-white transition hover:brightness-110", meta.gradient)}>
+            + Log {unit.replace(/s$/, "")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -879,6 +959,7 @@ function AddGoalDialog({
     perDay?: number;
     monthlyTarget?: number;
     unit?: string;
+    logEntries?: boolean;
   }) => void;
   isPending: boolean;
 }) {
@@ -888,6 +969,7 @@ function AddGoalDialog({
   const [perDay, setPerDay] = useState(5);
   const [monthlyTarget, setMonthlyTarget] = useState(3);
   const [unit, setUnit] = useState("sessions");
+  const [logEntries, setLogEntries] = useState(false);
 
   return (
     <Modal title="New goal" onClose={onClose}>
@@ -903,6 +985,7 @@ function AddGoalDialog({
             perDay: type === "daily" ? Math.max(1, perDay) : undefined,
             monthlyTarget: type === "count" ? Math.max(1, monthlyTarget) : undefined,
             unit: type === "count" ? unit : undefined,
+            logEntries: type === "count" ? logEntries : undefined,
           });
         }}
       >
@@ -948,6 +1031,12 @@ function AddGoalDialog({
               <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="sessions" className={inputClass} />
             </div>
           </div>
+        )}
+        {type === "count" && (
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+            <input type="checkbox" checked={logEntries} onChange={(e) => setLogEntries(e.target.checked)} className="h-4 w-4 rounded border-white/20 accent-cyan-500" />
+            Note what I did each time (e.g. book title, what I made)
+          </label>
         )}
         {type === "project" && (
           <p className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-slate-400">

@@ -3,7 +3,16 @@
 
 // ---------- Goals (life-improvement tracker) ----------
 
-export type GoalCategory = "prayer" | "exercise" | "stretch" | "reading" | "video" | "other";
+export type GoalCategory =
+  | "prayer"
+  | "exercise"
+  | "stretch"
+  | "reading"
+  | "video"
+  | "blog"
+  | "craft"
+  | "finance"
+  | "other";
 
 // How a goal is measured:
 // - "daily":   do it N times per day, every day of the month (prayers: 5/day)
@@ -20,6 +29,7 @@ export type GoalStep = {
 // Per-month state for count/project goals.
 export type MonthState = {
   count?: number; // "count" goals: completions logged this month
+  entries?: string[]; // "count" goals with logEntries: what you did/read/made
   steps?: GoalStep[]; // "project" goals: pipeline steps for this month
 };
 
@@ -38,6 +48,7 @@ export type Goal = {
   // "count"
   monthlyTarget?: number; // e.g. 3 sessions, 1 book
   unit?: string; // "sessions" | "books" | ...
+  logEntries?: boolean; // record a text label per completion (book title, what you made)
 
   // "project"
   stepTemplate?: string[]; // default steps applied to each month

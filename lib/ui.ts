@@ -131,6 +131,24 @@ export const CATEGORY_META: Record<GoalCategory, CategoryMeta> = {
     gradient: "from-rose-500 to-pink-500",
     soft: "bg-rose-500/10 border-rose-400/20 text-rose-200",
   },
+  blog: {
+    label: "Blog",
+    icon: "✍",
+    gradient: "from-blue-500 to-cyan-500",
+    soft: "bg-blue-500/10 border-blue-400/20 text-blue-200",
+  },
+  craft: {
+    label: "Arts & Crafts",
+    icon: "🎨",
+    gradient: "from-pink-500 to-rose-500",
+    soft: "bg-pink-500/10 border-pink-400/20 text-pink-200",
+  },
+  finance: {
+    label: "Finance",
+    icon: "💰",
+    gradient: "from-green-500 to-emerald-500",
+    soft: "bg-green-500/10 border-green-400/20 text-green-200",
+  },
   other: {
     label: "Goal",
     icon: "◆",
