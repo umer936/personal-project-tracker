@@ -9,7 +9,6 @@ import type {
   GoalCategory,
   GoalStep,
   GoalType,
-  MonthState,
   OutreachChannel,
   OutreachItem,
   OutreachStage,
@@ -17,50 +16,9 @@ import type {
 
 const DATABASE_FILE_PATH = path.join(process.cwd(), "data", "database.json");
 
-// Backfill any legacy outreach records (owner/done) into the pipeline shape.
-function normalizeOutreach(raw: Record<string, unknown>): OutreachItem {
-  const legacyOwner = raw.owner as string | undefined;
-  const legacyDone = raw.done as boolean | undefined;
-  const stage: OutreachStage =
-    (raw.stage as OutreachStage) ??
-    (legacyDone ? "done" : legacyOwner === "them" ? "waiting" : "todo");
-  return {
-    id: String(raw.id ?? ""),
-    name: String(raw.name ?? "Untitled"),
-    topic: String(raw.topic ?? ""),
-    channel: (raw.channel as OutreachChannel) ?? "email",
-    stage,
-    lastAction: String(raw.lastAction ?? todayString()),
-    followUpOn: (raw.followUpOn as string | null) ?? null,
-    nextAction: String(raw.nextAction ?? ""),
-    history: Array.isArray(raw.history) ? (raw.history as OutreachItem["history"]) : [],
-  };
-}
-
-function normalizeGoal(raw: Record<string, unknown>): Goal {
-  return {
-    id: String(raw.id ?? ""),
-    title: String(raw.title ?? "Untitled goal"),
-    category: (raw.category as GoalCategory) ?? "other",
-    type: (raw.type as GoalType) ?? "count",
-    perDay: raw.perDay as number | undefined,
-    monthlyTarget: raw.monthlyTarget as number | undefined,
-    unit: raw.unit as string | undefined,
-    stepTemplate: Array.isArray(raw.stepTemplate) ? (raw.stepTemplate as string[]) : undefined,
-    dailyLog: (raw.dailyLog as Record<string, number>) ?? {},
-    months: (raw.months as Record<string, MonthState>) ?? {},
-    notes: String(raw.notes ?? ""),
-  };
-}
-
 async function readDatabase(): Promise<DatabaseFile> {
   const raw = await fs.readFile(DATABASE_FILE_PATH, "utf8");
-  const parsed = JSON.parse(raw) as DatabaseFile;
-  parsed.goals = (parsed.goals ?? []).map((g) => normalizeGoal(g as unknown as Record<string, unknown>));
-  parsed.outreachItems = (parsed.outreachItems ?? []).map((item) =>
-    normalizeOutreach(item as unknown as Record<string, unknown>),
-  );
-  return parsed;
+  return JSON.parse(raw) as DatabaseFile;
 }
 
 async function writeDatabase(database: DatabaseFile) {
