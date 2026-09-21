@@ -1,5 +1,5 @@
 <?php
-// Shared HTML shell: <head> with Tailwind CDN + our CSS, and a closing footer.
+// Shared HTML shell: head metadata, htmx, and the built production stylesheet.
 
 declare(strict_types=1);
 
@@ -15,13 +15,24 @@ function layout_head(string $title): void
     <meta name="description" content="A calm, focused personal planner: recurring rhythms, monthly progress, and an outreach inbox.">
     <!-- Keep scroll position when htmx swaps in updated content after an action. -->
     <meta name="htmx-config" content='{"scrollIntoViewOnBoost": false}'>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .htmx-indicator {
+            opacity: 0;
+            transition: opacity .18s ease;
+        }
+
+        .htmx-request .htmx-indicator,
+        .htmx-request.htmx-indicator {
+            opacity: 1;
+        }
+    </style>
     <script src="https://unpkg.com/htmx.org@4/dist/htmx.min.js"></script>
     <link rel="stylesheet" href="<?= e(app_url('/app.css')) ?>">
 </head>
-<!-- hx-boost turns every link/form into an AJAX request that swaps the page body,
-     so actions update in place instead of reloading. Works without JS too. -->
-<body hx-boost="true" class="min-h-full flex flex-col bg-slate-950 text-slate-100">
+<!-- hx-boost turns every link/form into an AJAX request that swaps the app shell,
+     so actions update in place instead of forcing full page reloads. -->
+<body hx-boost="true" hx-target="#page-shell" hx-select="#page-shell" hx-swap="outerHTML show:window:top" hx-indicator="#htmx-indicator" class="min-h-full flex flex-col bg-slate-950 text-slate-100">
+<div id="htmx-indicator" class="htmx-indicator pointer-events-none fixed inset-x-0 top-0 z-[100] h-1 bg-linear-to-r from-cyan-500 via-fuchsia-500 to-amber-400"></div>
 <?php
 }
 

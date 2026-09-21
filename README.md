@@ -16,7 +16,7 @@ It is a **server-rendered PHP application**. It can run either behind **[Franken
 - **Login required** — nothing is visible until you sign in.
 - **Demo account** — a built-in `demo` / `demo` account lets people look around without registering. It **resets to the default goals once per calendar day** (lazily, on the first load of a new day).
 
-Passwords are hashed with PHP's `password_hash()`. Credentials live in `php/data`; each user's planner lives in `php/data`.
+Passwords are hashed with PHP's `password_hash()`. Credentials live in `data/users.json`; each user's planner lives in `data/stores/<username>.json`.
 
 ---
 
@@ -26,12 +26,12 @@ There is now a **real backend**. Data is stored on the server as JSON:
 
 | Path                          | What it is                                        |
 |-------------------------------|---------------------------------------------------|
-| `php/data`             | Username → password hash (created at runtime)     |
-| `php/data` | One planner file per account                      |
+| `data/users.json`             | Username → password hash (created at runtime)     |
+| `data/stores/<username>.json` | One planner file per account                      |
 
 - Data is **shared across your devices/browsers** — it's tied to your account, not your browser.
 - New locked "core" goals shipped in an update are merged into existing accounts automatically without wiping progress.
-- The `php/data` folder is **git-ignored** and persisted via a Docker named volume so it survives rebuilds.
+- The `data` folder is **git-ignored** and persisted via a Docker named volume so it survives rebuilds.
 
 The starting set of goals is defined in `php/src/seed.php`.
 
@@ -51,11 +51,20 @@ The `docker-compose.yml` mounts a named volume at `/app/data` so accounts and pl
 
 ## Local development (no Docker)
 
-You just need PHP 8.1+ installed:
+You just need PHP 8.1+ installed. For the production stylesheet, this repo uses the standalone Tailwind CLI binary — no Node.js or npm required.
 
 ```bash
+./build-tailwind.sh
 cd php/public
 php -S 127.0.0.1:8099 index.php   # router = front controller
+```
+
+On Windows PowerShell:
+
+```powershell
+.\build-tailwind.ps1
+Set-Location php\public
+php -S 127.0.0.1:8099 index.php
 ```
 
 Then open http://127.0.0.1:8099. (The `index.php` router mimics the Caddy rewrite so clean URLs like `/login` work with the built-in server.)
@@ -69,7 +78,7 @@ This repo now includes a top-level `index.php` wrapper and `.htaccess` so it can
 - Request `/proj_tracker/`
 - Apache rewrites clean URLs like `/proj_tracker/login` and `/proj_tracker/action` to the wrapper entry point
 - The app serves its stylesheet at `/proj_tracker/app.css`
-- Planner data is stored on disk under `php/data/`
+- Planner data is stored on disk under `data`
 
 No Docker is required for that setup.
 
@@ -80,7 +89,8 @@ No Docker is required for that setup.
 | Path                        | What it is                                                     |
 |-----------------------------|----------------------------------------------------------------|
 | `php/public/index.php`      | Front controller — routing + the `/action` dispatcher          |
-| `php/public/app.css`        | Global styling + Tailwind-v4 gradient bridges + animations     |
+| `php/assets/app.tailwind.css` | Tailwind source file + custom CSS                            |
+| `php/public/app.css`        | Built production stylesheet served to the browser              |
 | `php/src/helpers.php`       | Date/month math, goal calculations, category/channel metadata  |
 | `php/src/seed.php`          | Default goals + outreach used to seed accounts / reset demo    |
 | `php/src/store.php`         | Per-user JSON data layer (reads/writes + mutations)            |
@@ -90,7 +100,7 @@ No Docker is required for that setup.
 | `Dockerfile`                | Builds the FrankenPHP image                                     |
 | `docker-compose.yml`        | Runs the app on port 3003 with a persistent data volume        |
 
-Styling uses the **Tailwind Play CDN** at runtime, so there is no build step.
+Styling is built ahead of time with the **standalone Tailwind CLI binary** (`build-tailwind.ps1` / `build-tailwind.sh`), so there is no Node.js/npm runtime dependency.
 
 ---
 

@@ -10,6 +10,7 @@ function render_admin_page(string $user, ?array $flash = null): void
 
     layout_head('Admin · Rhythm');
     ?>
+    <div id="page-shell">
     <main class="relative min-h-screen overflow-x-hidden">
         <div class="pointer-events-none fixed inset-0 overflow-hidden">
             <div class="animate-float-slow absolute -left-32 -top-32 h-96 w-96 rounded-full bg-amber-500/10 blur-3xl"></div>
@@ -94,6 +95,7 @@ function render_admin_page(string $user, ?array $flash = null): void
             </div>
         </div>
     </main>
+    </div>
     <?php
     layout_foot();
 }

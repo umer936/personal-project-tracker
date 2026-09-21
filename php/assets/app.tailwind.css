@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global styling ported from app/globals.css, plus a few bridges for utility
+   names that were originally introduced while using the browser CDN build. */
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #04060b radial-gradient(140% 120% at 50% 0%, #0b1120 0%, #05070d 55%, #04060b 100%) no-repeat fixed;
+  color: #e2e8f0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Gradient bridges kept intentionally so existing templates stay compatible. */
+.bg-linear-to-r {
+  background-image: linear-gradient(to right, var(--tw-gradient-stops));
+}
+.bg-linear-to-br {
+  background-image: linear-gradient(to bottom right, var(--tw-gradient-stops));
+}
+
+/* Subtle custom scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+  background-clip: content-box;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.5; }
+  50% { transform: translateY(-20px) scale(1.05); opacity: 0.8; }
+}
+.animate-float-slow {
+  animation: float-slow 8s ease-in-out infinite;
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in-up 0.35s ease-out both;
+}
+
+/* Modal <dialog> styling: strip the native chrome, keep our own. */
+dialog {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  max-width: 100%;
+  max-height: 100%;
+}
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}

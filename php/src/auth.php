@@ -73,7 +73,11 @@ function require_login(): string
 {
     $user = current_user();
     if ($user === null) {
-        header('Location: ' . app_url('/login'));
+        if (is_htmx_request()) {
+            header('HX-Redirect: ' . app_url('/login'));
+        } else {
+            header('Location: ' . app_url('/login'));
+        }
         exit;
     }
     return $user;
@@ -83,7 +87,11 @@ function require_admin(): string
 {
     $user = require_login();
     if (!is_admin($user)) {
-        header('Location: ' . app_url('/'));
+        if (is_htmx_request()) {
+            header('HX-Redirect: ' . app_url('/'));
+        } else {
+            header('Location: ' . app_url('/'));
+        }
         exit;
     }
     return $user;

@@ -239,6 +239,11 @@ function app_url(string $path = '/'): string
     return ($base !== '' ? $base : '') . $path;
 }
 
+function is_htmx_request(): bool
+{
+    return strtolower((string) ($_SERVER['HTTP_HX_REQUEST'] ?? '')) === 'true';
+}
+
 /** HTML-escape shorthand. */
 function e(?string $value): string
 {

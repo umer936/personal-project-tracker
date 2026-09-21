@@ -44,6 +44,28 @@ function redirect(string $to): never
     exit;
 }
 
+function planner_url(string $tab, string $month): string
+{
+    return '/?tab=' . $tab . '&month=' . $month;
+}
+
+function render_planner_response(string $user, string $tab, string $month): never
+{
+    header('HX-Replace-Url: ' . app_url(planner_url($tab, $month)));
+
+    $db = store_read($user);
+    render_app_page($user, $db, $tab, $month, take_flash());
+    exit;
+}
+
+function render_admin_response(string $user): never
+{
+    header('HX-Replace-Url: ' . app_url('/admin'));
+
+    render_admin_page($user, take_flash());
+    exit;
+}
+
 function post(string $key, string $default = ''): string
 {
     return isset($_POST[$key]) ? (string) $_POST[$key] : $default;
@@ -69,12 +91,18 @@ if ($path === '/login') {
         }
         [$ok, $err] = attempt_login(post('username'), post('password'));
         if ($ok) {
+            if (is_htmx_request()) {
+                render_planner_response(require_login(), 'goals', current_month_key());
+            }
             redirect('/');
         }
         render_auth_page('login', $err, post('username'));
         exit;
     }
     if (current_user() !== null) {
+        if (is_htmx_request()) {
+            render_planner_response(require_login(), 'goals', current_month_key());
+        }
         redirect('/');
     }
     render_auth_page('login', null);
@@ -89,12 +117,18 @@ if ($path === '/register') {
         }
         [$ok, $err] = attempt_register(post('username'), post('password'), post('confirm'));
         if ($ok) {
+            if (is_htmx_request()) {
+                render_planner_response(require_login(), 'goals', current_month_key());
+            }
             redirect('/');
         }
         render_auth_page('register', $err, post('username'));
         exit;
     }
     if (current_user() !== null) {
+        if (is_htmx_request()) {
+            render_planner_response(require_login(), 'goals', current_month_key());
+        }
         redirect('/');
     }
     render_auth_page('register', null);
@@ -104,6 +138,11 @@ if ($path === '/register') {
 if ($path === '/logout') {
     if ($method === 'POST' && verify_csrf(post('csrf'))) {
         logout();
+    }
+    if (is_htmx_request()) {
+        header('HX-Replace-Url: ' . app_url('/login'));
+        render_auth_page('login', null);
+        exit;
     }
     redirect('/login');
 }
@@ -123,16 +162,16 @@ if ($path === '/export') {
 if ($path === '/import' && $method === 'POST') {
     if (!verify_csrf(post('csrf'))) {
         set_flash('Your session expired. Please try again.', 'error');
-        redirect('/');
+        render_planner_response($user, 'goals', current_month_key());
     }
     if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
         set_flash('No file was uploaded.', 'error');
-        redirect('/');
+        render_planner_response($user, 'goals', current_month_key());
     }
     $json = (string) file_get_contents($_FILES['file']['tmp_name']);
     $error = import_database($user, $json);
     set_flash($error ?? 'Backup imported. You\'re all set.', $error ? 'error' : 'ok');
-    redirect('/');
+    render_planner_response($user, 'goals', current_month_key());
 }
 
 // ---------- Admin routes ----------
@@ -141,8 +180,7 @@ if ($path === '/admin') {
     if (!is_admin($user)) {
         redirect('/');
     }
-    render_admin_page($user, take_flash());
-    exit;
+    render_admin_response($user);
 }
 
 if ($path === '/admin/action' && $method === 'POST') {
@@ -155,7 +193,7 @@ if ($path === '/admin/action' && $method === 'POST') {
             set_flash('Deleted account “' . $target . '”.', 'ok');
         }
     }
-    redirect('/admin');
+    render_admin_response($user);
 }
 
 if ($path === '/action' && $method === 'POST') {
@@ -163,7 +201,8 @@ if ($path === '/action' && $method === 'POST') {
     $month = safe_month(post('month'));
 
     if (!verify_csrf(post('csrf'))) {
-        redirect('/?tab=' . $tab . '&month=' . $month);
+        set_flash('Your session expired. Please try again.', 'error');
+        render_planner_response($user, $tab, $month);
     }
 
     $action = post('action');
@@ -235,10 +274,11 @@ if ($path === '/action' && $method === 'POST') {
         case 'reset':
             @unlink(store_path($user));
             store_read($user); // re-seed
+            set_flash('Reset to starter data.', 'ok');
             break;
     }
 
-    redirect('/?tab=' . $tab . '&month=' . $month);
+    render_planner_response($user, $tab, $month);
 }
 
 // ---------- Default: render the planner ----------

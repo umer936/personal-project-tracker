@@ -14,6 +14,7 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
 
     layout_head($isRegister ? 'Register · Rhythm' : 'Sign in · Rhythm');
     ?>
+    <div id="page-shell">
     <div class="pointer-events-none fixed inset-0 overflow-hidden">
         <div class="animate-float-slow absolute -left-32 -top-32 h-96 w-96 rounded-full bg-cyan-500/10 blur-3xl"></div>
         <div class="animate-float-slow absolute -right-32 top-1/4 h-96 w-96 rounded-full bg-fuchsia-500/10 blur-3xl" style="animation-delay:2s"></div>
@@ -37,7 +38,7 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
                     <p class="mb-4 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200"><?= e($error) ?></p>
                 <?php endif; ?>
 
-                <form method="post" action="<?= e(app_url($isRegister ? '/register' : '/login')) ?>" class="space-y-3">
+                <form method="post" action="<?= e(app_url($isRegister ? '/register' : '/login')) ?>" hx-post="<?= e(app_url($isRegister ? '/register' : '/login')) ?>" hx-target="#page-shell" hx-select="#page-shell" hx-swap="outerHTML show:window:top" class="space-y-3">
                     <input type="hidden" name="csrf" value="<?= e($token) ?>">
                     <div>
                         <label class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Username</label>
@@ -74,7 +75,7 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
                 </div>
             </div>
 
-            <form method="post" action="<?= e(app_url('/login')) ?>" class="mt-4">
+            <form method="post" action="<?= e(app_url('/login')) ?>" hx-post="<?= e(app_url('/login')) ?>" hx-target="#page-shell" hx-select="#page-shell" hx-swap="outerHTML show:window:top" class="mt-4">
                 <input type="hidden" name="csrf" value="<?= e($token) ?>">
                 <input type="hidden" name="username" value="demo">
                 <input type="hidden" name="password" value="<?= e(DEMO_PASSWORD) ?>">
@@ -84,6 +85,7 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
             </form>
         </div>
     </main>
+    </div>
     <?php
     layout_foot();
 }

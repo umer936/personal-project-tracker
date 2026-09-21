@@ -1,7 +1,7 @@
 <?php
 // The main planner screen (Goals + Follow-ups tabs).
-// Every interactive control is a small <form> that POSTs to /action and
-// redirects back (Post/Redirect/Get), so the whole app is server-driven.
+// Every interactive control is still server-rendered, but htmx boosts the
+// navigation/forms so the planner shell updates in place without full reloads.
 
 declare(strict_types=1);
 
@@ -51,6 +51,7 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
 
     layout_head('Rhythm · Personal Planner');
     ?>
+    <div id="page-shell">
     <main class="relative min-h-screen overflow-x-hidden">
         <div class="pointer-events-none fixed inset-0 overflow-hidden">
             <div class="animate-float-slow absolute -left-32 -top-32 h-96 w-96 rounded-full bg-cyan-500/10 blur-3xl"></div>
@@ -108,6 +109,11 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
         </header>
 
         <div class="relative mx-auto max-w-6xl px-4 py-8 sm:px-6">
+            <?php if ($flash): ?>
+                <div class="mb-6 rounded-xl border px-4 py-3 text-sm <?= ($flash['kind'] ?? 'ok') === 'error' ? 'border-rose-400/30 bg-rose-500/10 text-rose-200' : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' ?>">
+                    <?= e($flash['text']) ?>
+                </div>
+            <?php endif; ?>
             <?php if ($tab === 'goals'): ?>
                 <?php render_goals_tab($goals, $monthKey, $isCurrentMonth, $prayer, $prayerPercent, $todayPrayers, $onPaceCount, $daysLeft); ?>
             <?php else: ?>
@@ -120,6 +126,7 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
     render_add_goal_dialog($tab, $monthKey);
     render_add_outreach_dialog($tab, $monthKey);
     render_data_dialog($tab, $monthKey);
+    echo '</div>';
     layout_foot();
 }
 

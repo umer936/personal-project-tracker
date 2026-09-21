@@ -5,8 +5,10 @@
 .idea/
 
 # Runtime per-user planner data (accounts + stores)
-php/data/
-php/data/
+data/
 
 # Local data backups
 *.bak.json
+
+# Downloaded standalone Tailwind CLI binaries
+tools/tailwind/
