@@ -17,7 +17,7 @@ function layout_head(string $title): void
     <meta name="htmx-config" content='{"scrollIntoViewOnBoost": false}'>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@4/dist/htmx.min.js"></script>
-    <link rel="stylesheet" href="/app.css">
+    <link rel="stylesheet" href="<?= e(app_url('/app.css')) ?>">
 </head>
 <!-- hx-boost turns every link/form into an AJAX request that swaps the page body,
      so actions update in place instead of reloading. Works without JS too. -->

@@ -1,0 +1,18 @@
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+
+RewriteEngine On
+
+# Hide implementation details and editor/config files from the web.
+RewriteRule (^|/)\. - [F,L]
+RewriteRule ^(?:data|php/src|php/data)(?:/|$) - [F,L,NC]
+RewriteRule ^(?:Dockerfile|docker-compose\.yml|README\.md)$ - [F,L,NC]
+RewriteRule ^php/Caddyfile$ - [F,L,NC]
+
+# Serve the public stylesheet from the app root URL.
+RewriteRule ^app\.css$ php/public/app.css [L,NC]
+
+# Route clean URLs (/, /login, /action, /admin, ...) through the wrapper entrypoint.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]

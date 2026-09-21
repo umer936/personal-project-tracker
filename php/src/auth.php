@@ -57,7 +57,7 @@ function start_session(): void
         session_set_cookie_params([
             'httponly' => true,
             'samesite' => 'Lax',
-            'path' => '/',
+            'path' => app_base_path() !== '' ? app_base_path() : '/',
         ]);
         session_start();
     }
@@ -73,7 +73,7 @@ function require_login(): string
 {
     $user = current_user();
     if ($user === null) {
-        header('Location: /login');
+        header('Location: ' . app_url('/login'));
         exit;
     }
     return $user;
@@ -83,7 +83,7 @@ function require_admin(): string
 {
     $user = require_login();
     if (!is_admin($user)) {
-        header('Location: /');
+        header('Location: ' . app_url('/'));
         exit;
     }
     return $user;

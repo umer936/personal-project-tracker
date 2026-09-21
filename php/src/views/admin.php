@@ -25,7 +25,7 @@ function render_admin_page(string $user, ?array $flash = null): void
                         <p class="hidden text-[11px] text-slate-500 sm:block">User management</p>
                     </div>
                 </div>
-                <a href="/" class="flex h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 text-sm text-slate-200 transition hover:bg-white/10 hover:text-white">
+                <a href="<?= e(app_url('/')) ?>" class="flex h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 text-sm text-slate-200 transition hover:bg-white/10 hover:text-white">
                     ‹ Back to planner
                 </a>
             </div>
@@ -75,7 +75,7 @@ function render_admin_page(string $user, ?array $flash = null): void
                                         <?php if ($row['role'] === 'admin'): ?>
                                             <span class="text-[11px] text-slate-600">—</span>
                                         <?php else: ?>
-                                            <form method="post" action="/admin/action" class="inline"
+                                            <form method="post" action="<?= e(app_url('/admin/action')) ?>" class="inline"
                                                   hx-confirm="Delete “<?= e($row['username']) ?>” and all of their data? This can't be undone.">
                                                 <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
                                                 <input type="hidden" name="action" value="deleteUser">

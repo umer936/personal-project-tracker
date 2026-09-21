@@ -11,8 +11,13 @@ const DEMO_USER = 'demo';
 
 function data_dir(): string
 {
-    // php/src -> php/data locally; /app/src -> /app/data in the container.
-    $dir = dirname(__DIR__) . '/data';
+    // In this repo layout the PHP app lives under php/, but runtime data should
+    // live at the repository root: data/. Inside the Docker image, php/ is copied
+    // to /app/, so /app/src should still resolve to /app/data.
+    $baseDir = dirname(__DIR__);
+    $dir = basename($baseDir) === 'php'
+        ? dirname($baseDir) . '/data'
+        : $baseDir . '/data';
     if (!is_dir($dir . '/stores')) {
         @mkdir($dir . '/stores', 0775, true);
     }

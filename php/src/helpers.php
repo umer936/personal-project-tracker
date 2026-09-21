@@ -214,6 +214,31 @@ function channel_meta(string $channel): array
 
 // ---------- Small utilities ----------
 
+function app_base_path(): string
+{
+    $scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? $_SERVER['PHP_SELF'] ?? '');
+    $base = str_replace('\\', '/', dirname($scriptName));
+    if ($base === '/' || $base === '.' || $base === '\\') {
+        return '';
+    }
+    return rtrim($base, '/');
+}
+
+function app_url(string $path = '/'): string
+{
+    $base = app_base_path();
+
+    if ($path === '' || $path === '/') {
+        return $base !== '' ? $base . '/' : '/';
+    }
+
+    if (!str_starts_with($path, '/')) {
+        $path = '/' . $path;
+    }
+
+    return ($base !== '' ? $base : '') . $path;
+}
+
 /** HTML-escape shorthand. */
 function e(?string $value): string
 {

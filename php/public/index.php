@@ -13,14 +13,34 @@ require_once __DIR__ . '/../src/views/admin.php';
 ensure_demo_user();
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$path = rtrim(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/', '/');
-if ($path === '') {
-    $path = '/';
+$path = current_request_path();
+
+function current_request_path(): string
+{
+    $path = rtrim(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/', '/');
+    if ($path === '') {
+        $path = '/';
+    }
+
+    $base = app_base_path();
+    if ($base !== '' && ($path === $base || str_starts_with($path, $base . '/'))) {
+        $path = substr($path, strlen($base)) ?: '/';
+    }
+
+    if ($path === '/index.php') {
+        return '/';
+    }
+    if (str_starts_with($path, '/index.php/')) {
+        $path = substr($path, strlen('/index.php')) ?: '/';
+    }
+
+    return $path === '' ? '/' : $path;
 }
 
 function redirect(string $to): never
 {
-    header('Location: ' . $to);
+    $location = preg_match('~^[a-z][a-z0-9+.-]*://~i', $to) ? $to : app_url($to);
+    header('Location: ' . $location);
     exit;
 }
 

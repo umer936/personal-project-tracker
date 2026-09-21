@@ -37,7 +37,7 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
                     <p class="mb-4 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200"><?= e($error) ?></p>
                 <?php endif; ?>
 
-                <form method="post" action="<?= $isRegister ? '/register' : '/login' ?>" class="space-y-3">
+                <form method="post" action="<?= e(app_url($isRegister ? '/register' : '/login')) ?>" class="space-y-3">
                     <input type="hidden" name="csrf" value="<?= e($token) ?>">
                     <div>
                         <label class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Username</label>
@@ -67,14 +67,14 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
 
                 <div class="mt-4 text-center text-sm text-slate-400">
                     <?php if ($isRegister): ?>
-                        Already have an account? <a href="/login" class="text-cyan-300 hover:text-cyan-200">Sign in</a>
+                        Already have an account? <a href="<?= e(app_url('/login')) ?>" class="text-cyan-300 hover:text-cyan-200">Sign in</a>
                     <?php else: ?>
-                        New here? <a href="/register" class="text-cyan-300 hover:text-cyan-200">Create an account</a>
+                        New here? <a href="<?= e(app_url('/register')) ?>" class="text-cyan-300 hover:text-cyan-200">Create an account</a>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <form method="post" action="/login" class="mt-4">
+            <form method="post" action="<?= e(app_url('/login')) ?>" class="mt-4">
                 <input type="hidden" name="csrf" value="<?= e($token) ?>">
                 <input type="hidden" name="username" value="demo">
                 <input type="hidden" name="password" value="<?= e(DEMO_PASSWORD) ?>">

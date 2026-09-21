@@ -2,9 +2,10 @@
 
 # OS / editor cruft
 .DS_Store
-.idea
+.idea/
 
 # Runtime per-user planner data (accounts + stores)
+php/data/
 php/data/
 
 # Local data backups

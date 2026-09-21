@@ -72,7 +72,7 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
                 <nav class="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1">
                     <?php $tabLabels = ['goals' => 'Goals', 'outreach' => 'Follow-ups']; ?>
                     <?php foreach (['goals', 'outreach'] as $t): ?>
-                        <a href="/?tab=<?= $t ?>&month=<?= e($monthKey) ?>"
+                        <a href="<?= e(app_url('/?tab=' . $t . '&month=' . $monthKey)) ?>"
                            class="<?= cn('relative rounded-full px-3 py-1.5 text-sm font-medium transition sm:px-4', $tab === $t ? 'bg-linear-to-r from-cyan-500/20 to-fuchsia-500/20 text-white shadow-sm ring-1 ring-white/10' : 'text-slate-400 hover:text-slate-200') ?>">
                             <?= e($tabLabels[$t]) ?>
                             <?php if ($t === 'outreach' && $needsAttention > 0): ?>
@@ -84,7 +84,7 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
 
                 <div class="flex shrink-0 items-center gap-2">
                     <?php if (is_admin($user)): ?>
-                        <a href="/admin" title="Manage users"
+                        <a href="<?= e(app_url('/admin')) ?>" title="Manage users"
                            class="flex h-9 items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-500/10 px-3 text-sm text-amber-100 transition hover:bg-amber-500/20">
                             <span aria-hidden>🛡</span><span class="hidden sm:inline">Admin</span>
                         </a>
@@ -98,7 +98,7 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
                         <span aria-hidden class="text-base leading-none">+</span>
                         <span class="hidden sm:inline"><?= $tab === 'outreach' ? 'New contact' : 'New goal' ?></span>
                     </button>
-                    <form method="post" action="/logout" class="contents">
+                    <form method="post" action="<?= e(app_url('/logout')) ?>" class="contents">
                         <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
                         <button type="submit" title="Sign out"
                                 class="flex h-9 items-center rounded-full border border-white/10 bg-white/5 px-3 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white">⎋</button>
@@ -135,11 +135,11 @@ function render_goals_tab(array $goals, string $monthKey, bool $isCurrentMonth, 
                 <h1 class="mt-1 text-3xl font-bold tracking-tight text-white sm:text-4xl">Life goals</h1>
             </div>
             <div class="flex items-center gap-2">
-                <a href="/?tab=goals&month=<?= e(add_month($monthKey, -1)) ?>" class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10">‹</a>
+                <a href="<?= e(app_url('/?tab=goals&month=' . add_month($monthKey, -1))) ?>" class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10">‹</a>
                 <div class="min-w-40 text-center text-sm font-semibold text-white"><?= e(month_label($monthKey)) ?></div>
-                <a href="/?tab=goals&month=<?= e(add_month($monthKey, 1)) ?>" class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10">›</a>
+                <a href="<?= e(app_url('/?tab=goals&month=' . add_month($monthKey, 1))) ?>" class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10">›</a>
                 <?php if (!$isCurrentMonth): ?>
-                    <a href="/?tab=goals&month=<?= e(current_month_key()) ?>" class="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-100 transition hover:bg-cyan-500/20">This month</a>
+                    <a href="<?= e(app_url('/?tab=goals&month=' . current_month_key())) ?>" class="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-100 transition hover:bg-cyan-500/20">This month</a>
                 <?php endif; ?>
             </div>
         </section>
@@ -214,7 +214,7 @@ function render_goal_card(array $goal, string $monthKey, bool $isCurrentMonth): 
             <div class="flex items-center gap-2">
                 <?php pace_chip($onPace); ?>
                 <?php if (empty($goal['locked'])): ?>
-                    <form method="post" action="/action" onsubmit="return confirm('Delete this goal?')" class="contents">
+                    <form method="post" action="<?= e(app_url('/action')) ?>" onsubmit="return confirm('Delete this goal?')" class="contents">
                         <?= action_context('goals', $monthKey) ?>
                         <input type="hidden" name="action" value="deleteGoal">
                         <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
@@ -264,7 +264,7 @@ function render_daily_body(array $goal, string $monthKey, bool $isCurrentMonth, 
                         $filled = $i < $todayCount;
                         $newCount = ($filled && $todayCount === $i + 1) ? $i : $i + 1;
                     ?>
-                        <form method="post" action="/action" class="flex-1">
+                        <form method="post" action="<?= e(app_url('/action')) ?>" class="flex-1">
                             <?= action_context('goals', $monthKey) ?>
                             <input type="hidden" name="action" value="setDay">
                             <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
@@ -329,7 +329,7 @@ function render_count_body(array $goal, string $monthKey, int $percent, array $m
 
         <?php if (!empty($goal['logEntries'])): ?>
             <div class="space-y-3">
-                <form method="post" action="/action" class="flex gap-2">
+                <form method="post" action="<?= e(app_url('/action')) ?>" class="flex gap-2">
                     <?= action_context('goals', $monthKey) ?>
                     <input type="hidden" name="action" value="addEntry">
                     <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
@@ -342,7 +342,7 @@ function render_count_body(array $goal, string $monthKey, int $percent, array $m
                         <?php foreach ($entries as $i => $label): ?>
                             <li class="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5">
                                 <span class="min-w-0 truncate text-sm text-slate-200"><?= e($label) ?></span>
-                                <form method="post" action="/action" class="contents">
+                                <form method="post" action="<?= e(app_url('/action')) ?>" class="contents">
                                     <?= action_context('goals', $monthKey) ?>
                                     <input type="hidden" name="action" value="removeEntry">
                                     <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
@@ -356,14 +356,14 @@ function render_count_body(array $goal, string $monthKey, int $percent, array $m
             </div>
         <?php else: ?>
             <div class="flex gap-2">
-                <form method="post" action="/action" class="contents">
+                <form method="post" action="<?= e(app_url('/action')) ?>" class="contents">
                     <?= action_context('goals', $monthKey) ?>
                     <input type="hidden" name="action" value="count">
                     <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
                     <input type="hidden" name="delta" value="-1">
                     <button type="submit" <?= $done === 0 ? 'disabled' : '' ?> class="rounded-lg border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-slate-200 transition hover:bg-white/10 disabled:opacity-40">−</button>
                 </form>
-                <form method="post" action="/action" class="flex-1">
+                <form method="post" action="<?= e(app_url('/action')) ?>" class="flex-1">
                     <?= action_context('goals', $monthKey) ?>
                     <input type="hidden" name="action" value="count">
                     <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
@@ -396,7 +396,7 @@ function render_project_body(array $goal, string $monthKey, int $percent, array 
 
         <div class="space-y-2">
             <?php foreach ($steps as $step): ?>
-                <form method="post" action="/action" class="block">
+                <form method="post" action="<?= e(app_url('/action')) ?>" class="block">
                     <?= action_context('goals', $monthKey) ?>
                     <input type="hidden" name="action" value="step">
                     <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
@@ -543,7 +543,7 @@ function render_outreach_card(array $item, string $monthKey): void
                 <?php outreach_action_button($monthKey, $id, 'setStage', ['stage' => 'done'], 'Done', 'rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100 transition hover:bg-emerald-500/20'); ?>
             <?php endif; ?>
             <button type="button" onclick="document.getElementById('edit-<?= e($id) ?>').showModal()" class="<?= cn(OUTREACH_BTN, 'ml-auto') ?>">Edit</button>
-            <form method="post" action="/action" onsubmit="return confirm('Delete this contact?')" class="contents">
+            <form method="post" action="<?= e(app_url('/action')) ?>" onsubmit="return confirm('Delete this contact?')" class="contents">
                 <?= action_context('outreach', $monthKey) ?>
                 <input type="hidden" name="action" value="deleteOutreach">
                 <input type="hidden" name="id" value="<?= e($id) ?>">
@@ -560,7 +560,7 @@ function render_outreach_card(array $item, string $monthKey): void
 function outreach_action_button(string $monthKey, string $id, string $action, array $fields, string $label, string $class, ?string $title = null): void
 {
     ?>
-    <form method="post" action="/action" class="contents">
+    <form method="post" action="<?= e(app_url('/action')) ?>" class="contents">
         <?= action_context('outreach', $monthKey) ?>
         <input type="hidden" name="action" value="<?= e($action) ?>">
         <input type="hidden" name="id" value="<?= e($id) ?>">
@@ -595,7 +595,7 @@ function render_add_goal_dialog(string $tab, string $monthKey): void
 {
     modal_open('add-goal-modal', 'New goal');
     ?>
-    <form method="post" action="/action" class="space-y-4" id="add-goal-form">
+    <form method="post" action="<?= e(app_url('/action')) ?>" class="space-y-4" id="add-goal-form">
         <?= action_context($tab, $monthKey) ?>
         <input type="hidden" name="action" value="createGoal">
         <div>
@@ -662,7 +662,7 @@ function render_add_outreach_dialog(string $tab, string $monthKey): void
 {
     modal_open('add-outreach-modal', 'New contact');
     ?>
-    <form method="post" action="/action" class="space-y-4">
+    <form method="post" action="<?= e(app_url('/action')) ?>" class="space-y-4">
         <?= action_context($tab, $monthKey) ?>
         <input type="hidden" name="action" value="createOutreach">
         <div class="grid grid-cols-2 gap-3">
@@ -702,7 +702,7 @@ function render_edit_outreach_dialog(array $item, string $monthKey): void
 {
     modal_open('edit-' . $item['id'], 'Edit contact');
     ?>
-    <form method="post" action="/action" class="space-y-2">
+    <form method="post" action="<?= e(app_url('/action')) ?>" class="space-y-2">
         <?= action_context('outreach', $monthKey) ?>
         <input type="hidden" name="action" value="updateOutreach">
         <input type="hidden" name="id" value="<?= e($item['id']) ?>">
@@ -733,9 +733,9 @@ function render_data_dialog(string $tab, string $monthKey): void
     <div class="space-y-5">
         <p class="text-sm text-slate-400">Your planner is stored on the server under your account. Export a backup, import one to restore, or reset back to the starter data.</p>
         <div class="space-y-2">
-            <a href="/export" hx-boost="false" class="block w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110">⬇ Export backup (.json)</a>
+            <a href="<?= e(app_url('/export')) ?>" hx-boost="false" class="block w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110">⬇ Export backup (.json)</a>
 
-            <form method="post" action="/import" enctype="multipart/form-data" hx-boost="false">
+            <form method="post" action="<?= e(app_url('/import')) ?>" enctype="multipart/form-data" hx-boost="false">
                 <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
                 <input type="file" name="file" accept="application/json,.json" required
                        onchange="document.getElementById('import-submit').disabled = !this.files.length"
@@ -746,7 +746,7 @@ function render_data_dialog(string $tab, string $monthKey): void
             <p class="text-[11px] text-slate-500">Importing replaces everything currently stored. Consider exporting first.</p>
         </div>
         <div class="border-t border-white/10 pt-4">
-            <form method="post" action="/action" hx-confirm="Reset all data back to the starter data? This can't be undone.">
+            <form method="post" action="<?= e(app_url('/action')) ?>" hx-confirm="Reset all data back to the starter data? This can't be undone.">
                 <?= action_context($tab, $monthKey) ?>
                 <input type="hidden" name="action" value="reset">
                 <button type="submit" class="w-full rounded-lg border border-rose-400/20 bg-rose-500/5 px-4 py-2 text-sm text-rose-200 transition hover:bg-rose-500/10">Reset to starter data</button>
