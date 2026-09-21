@@ -18,6 +18,61 @@ function default_goals(): array
         ['id' => 'rest', 'title' => 'Take a no-work day (no projects)', 'category' => 'rest', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'days', 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
         ['id' => 'soccer', 'title' => 'Soccer training', 'category' => 'soccer', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'sessions', 'logEntries' => true, 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
         ['id' => 'video', 'title' => 'Publish a YouTube video', 'category' => 'video', 'type' => 'project', 'stepTemplate' => ['Idea', 'Script', 'Record', 'Edit', 'Thumbnail', 'Publish'], 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+        ['id' => 'home', 'title' => 'House project', 'category' => 'home', 'type' => 'count', 'monthlyTarget' => 1, 'unit' => 'projects', 'logEntries' => true, 'options' => ['Deep-clean the garage', 'Touch-up paint the hallway', 'Organize the pantry', 'Service the HVAC filter', 'Declutter the closet'], 'dailyLog' => [], 'months' => [], 'notes' => '', 'locked' => true],
+    ];
+}
+
+/** Default per-user preferences. All sections visible out of the box. */
+function default_settings(): array
+{
+    return [
+        'showGoals' => true,
+        'showFollowups' => true,
+        'showBooks' => true,
+    ];
+}
+
+/** A couple of sample books so the Book log tab isn't empty on a fresh account. */
+function sample_books(): array
+{
+    return [
+        [
+            'id' => 'the-midnight-library',
+            'title' => 'The Midnight Library',
+            'author' => 'Matt Haig',
+            'readingTime' => '3h 10m',
+            'pages' => 288,
+            'finishedOn' => '',
+            'bookClub' => false,
+            'notes' => [
+                ['text' => 'Currently reading — the premise about regrets is gripping.', 'page' => null],
+            ],
+        ],
+        [
+            'id' => 'atomic-habits',
+            'title' => 'Atomic Habits',
+            'author' => 'James Clear',
+            'readingTime' => '6h 20m',
+            'pages' => 320,
+            'finishedOn' => date('Y-m-d', strtotime('-20 days')),
+            'bookClub' => true,
+            'notes' => [
+                ['text' => 'You do not rise to the level of your goals, you fall to the level of your systems.', 'page' => 27],
+                ['text' => 'Loved the idea of habit stacking — worth trying next month.', 'page' => null],
+            ],
+        ],
+        [
+            'id' => 'the-pragmatic-programmer',
+            'title' => 'The Pragmatic Programmer',
+            'author' => 'Hunt & Thomas',
+            'readingTime' => '9h',
+            'pages' => 352,
+            'finishedOn' => date('Y-m-d', strtotime('-70 days')),
+            'bookClub' => false,
+            'notes' => [
+                ['text' => 'DRY — Don\'t Repeat Yourself.', 'page' => 30],
+            ],
+        ],
     ];
 }
 
@@ -50,6 +105,10 @@ function default_database(): array
         'version' => 2,
         'goals' => default_goals(),
         'outreachItems' => sample_outreach(),
+        'books' => sample_books(),
+        'history' => [],
+        'deletedCoreGoals' => [],
+        'settings' => default_settings(),
     ];
 }
 
@@ -63,5 +122,9 @@ function demo_database(): array
         'version' => 2,
         'goals' => default_goals(),
         'outreachItems' => sample_outreach(),
+        'books' => sample_books(),
+        'history' => [],
+        'deletedCoreGoals' => [],
+        'settings' => default_settings(),
     ];
 }

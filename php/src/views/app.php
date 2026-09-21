@@ -20,8 +20,26 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
 {
     $goals = $db['goals'];
     $outreach = $db['outreachItems'];
+    $books = $db['books'] ?? [];
+    $settings = $db['settings'] ?? ['showGoals' => true, 'showFollowups' => true, 'showBooks' => true];
+    $hasHistory = count($db['history'] ?? []) > 0;
     $cur = current_month_key();
     $isCurrentMonth = $monthKey === $cur;
+
+    // Which sections/tabs are enabled, in display order.
+    $tabMeta = [
+        'goals' => ['label' => 'Goals', 'on' => !empty($settings['showGoals']), 'add' => 'add-goal', 'new' => 'New goal'],
+        'outreach' => ['label' => 'Follow-ups', 'on' => !empty($settings['showFollowups']), 'add' => 'add-outreach', 'new' => 'New contact'],
+        'books' => ['label' => 'Books', 'on' => !empty($settings['showBooks']), 'add' => 'add-book', 'new' => 'New book'],
+    ];
+    $enabledTabs = array_keys(array_filter($tabMeta, fn($m) => $m['on']));
+    if (count($enabledTabs) === 0) {
+        $enabledTabs = ['goals'];
+    }
+    // If the requested tab is hidden, fall back to the first enabled one.
+    if (!in_array($tab, $enabledTabs, true)) {
+        $tab = $enabledTabs[0];
+    }
 
     // Follow-up sorting / buckets.
     $urgency = function (array $o): int {
@@ -61,21 +79,20 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
 
         <!-- Top navigation -->
         <header class="sticky top-0 z-30 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
-            <div class="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-                <div class="flex min-w-0 items-center gap-2.5">
+            <div class="mx-auto flex max-w-6xl items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-6 sm:py-3">
+                <div class="flex min-w-0 shrink items-center gap-2 sm:gap-2.5">
                     <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-cyan-500 to-fuchsia-500 text-sm font-bold text-white shadow-lg shadow-fuchsia-500/30">R</div>
-                    <div class="min-w-0 leading-tight">
+                    <div class="hidden min-w-0 leading-tight sm:block">
                         <p class="truncate text-sm font-semibold text-white">Rhythm</p>
-                        <p class="hidden text-[11px] text-slate-500 sm:block"><?= e($user) ?><?= $user === DEMO_USER ? ' · demo' : '' ?></p>
+                        <p class="truncate text-[11px] text-slate-500"><?= e($user) ?><?= $user === DEMO_USER ? ' · demo' : '' ?></p>
                     </div>
                 </div>
 
-                <nav class="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1">
-                    <?php $tabLabels = ['goals' => 'Goals', 'outreach' => 'Follow-ups']; ?>
-                    <?php foreach (['goals', 'outreach'] as $t): ?>
+                <nav class="scrollbar-none flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/5 p-1 sm:flex-none sm:overflow-visible">
+                    <?php foreach ($enabledTabs as $t): ?>
                         <a href="<?= e(app_url('/?tab=' . $t . '&month=' . $monthKey)) ?>"
-                           class="<?= cn('relative rounded-full px-3 py-1.5 text-sm font-medium transition sm:px-4', $tab === $t ? 'bg-linear-to-r from-cyan-500/20 to-fuchsia-500/20 text-white shadow-sm ring-1 ring-white/10' : 'text-slate-400 hover:text-slate-200') ?>">
-                            <?= e($tabLabels[$t]) ?>
+                           class="<?= cn('relative shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition sm:px-4', $tab === $t ? 'bg-linear-to-r from-cyan-500/20 to-fuchsia-500/20 text-white shadow-sm ring-1 ring-white/10' : 'text-slate-400 hover:text-slate-200') ?>">
+                            <?= e($tabMeta[$t]['label']) ?>
                             <?php if ($t === 'outreach' && $needsAttention > 0): ?>
                                 <span class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-rose-500/90 px-1 text-[10px] font-semibold text-white"><?= $needsAttention ?></span>
                             <?php endif; ?>
@@ -83,27 +100,54 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
                     <?php endforeach; ?>
                 </nav>
 
-                <div class="flex shrink-0 items-center gap-2">
-                    <?php if (is_admin($user)): ?>
-                        <a href="<?= e(app_url('/admin')) ?>" title="Manage users"
-                           class="flex h-9 items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-500/10 px-3 text-sm text-amber-100 transition hover:bg-amber-500/20">
-                            <span aria-hidden>🛡</span><span class="hidden sm:inline">Admin</span>
-                        </a>
-                    <?php endif; ?>
-                    <button type="button" onclick="document.getElementById('data-modal').showModal()"
-                            class="flex h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white">
-                        <span aria-hidden>⚙</span><span class="hidden sm:inline">Data</span>
+                <div class="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+                    <button type="button" onclick="document.getElementById('<?= e($tabMeta[$tab]['add']) ?>-modal').showModal()"
+                            class="flex h-9 items-center gap-1.5 rounded-full bg-linear-to-r from-cyan-500 to-fuchsia-500 px-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition hover:brightness-110 sm:px-4">
+                        <span aria-hidden="true" class="text-base leading-none">+</span>
+                        <span class="hidden sm:inline"><?= e($tabMeta[$tab]['new']) ?></span>
                     </button>
-                    <button type="button" onclick="document.getElementById('<?= $tab === 'outreach' ? 'add-outreach' : 'add-goal' ?>-modal').showModal()"
-                            class="flex h-9 items-center gap-1.5 rounded-full bg-linear-to-r from-cyan-500 to-fuchsia-500 px-3.5 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition hover:brightness-110 sm:px-4">
-                        <span aria-hidden class="text-base leading-none">+</span>
-                        <span class="hidden sm:inline"><?= $tab === 'outreach' ? 'New contact' : 'New goal' ?></span>
-                    </button>
-                    <form method="post" action="<?= e(app_url('/logout')) ?>" class="contents">
-                        <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-                        <button type="submit" title="Sign out"
-                                class="flex h-9 items-center rounded-full border border-white/10 bg-white/5 px-3 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white">⎋</button>
-                    </form>
+
+                    <!-- Overflow menu: keeps the header uncluttered on mobile. -->
+                    <details class="menu relative">
+                        <summary class="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white [&::-webkit-details-marker]:hidden">
+                            <span aria-hidden="true" class="text-lg leading-none">⋯</span>
+                        </summary>
+                        <div class="absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur-xl">
+                            <p class="px-3 py-1.5 text-[11px] uppercase tracking-widest text-slate-500 sm:hidden"><?= e($user) ?><?= $user === DEMO_USER ? ' · demo' : '' ?></p>
+                            <?php if ($hasHistory): ?>
+                                <form method="post" action="<?= e(app_url('/action')) ?>">
+                                    <?= action_context($tab, $monthKey) ?>
+                                    <input type="hidden" name="action" value="undo">
+                                    <button type="submit" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10">
+                                        <span aria-hidden="true">↶</span> Undo last change
+                                    </button>
+                                </form>
+                            <?php endif; ?>
+                            <a href="<?= e(app_url('/history')) ?>" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-200 transition hover:bg-white/10">
+                                <span aria-hidden="true">🕑</span> History
+                            </a>
+                            <button type="button" onclick="this.closest('details').removeAttribute('open'); document.getElementById('settings-modal').showModal()"
+                                    class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10">
+                                <span aria-hidden="true">⚙</span> Settings
+                            </button>
+                            <button type="button" onclick="this.closest('details').removeAttribute('open'); document.getElementById('data-modal').showModal()"
+                                    class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10">
+                                <span aria-hidden="true">🗄</span> Backup &amp; data
+                            </button>
+                            <?php if (is_admin($user)): ?>
+                                <a href="<?= e(app_url('/admin')) ?>" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-amber-100 transition hover:bg-amber-500/15">
+                                    <span aria-hidden="true">🛡</span> Admin
+                                </a>
+                            <?php endif; ?>
+                            <div class="my-1 border-t border-white/10"></div>
+                            <form method="post" action="<?= e(app_url('/logout')) ?>">
+                                <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+                                <button type="submit" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-slate-300 transition hover:bg-white/10 hover:text-white">
+                                    <span aria-hidden="true">⎋</span> Sign out
+                                </button>
+                            </form>
+                        </div>
+                    </details>
                 </div>
             </div>
         </header>
@@ -115,7 +159,9 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
                 </div>
             <?php endif; ?>
             <?php if ($tab === 'goals'): ?>
-                <?php render_goals_tab($goals, $monthKey, $isCurrentMonth, $prayer, $prayerPercent, $todayPrayers, $onPaceCount, $daysLeft); ?>
+                <?php render_goals_tab($goals, $books, $monthKey, $isCurrentMonth, $prayer, $prayerPercent, $todayPrayers, $onPaceCount, $daysLeft); ?>
+            <?php elseif ($tab === 'books'): ?>
+                <?php render_books_tab($books, $monthKey); ?>
             <?php else: ?>
                 <?php render_outreach_tab($tab, $monthKey, $todoItems, $waitingItems, $doneItems, $followUpDue); ?>
             <?php endif; ?>
@@ -125,14 +171,26 @@ function render_app_page(string $user, array $db, string $tab, string $monthKey,
     <?php
     render_add_goal_dialog($tab, $monthKey);
     render_add_outreach_dialog($tab, $monthKey);
+    render_add_book_dialog($tab, $monthKey);
+    render_settings_dialog($tab, $monthKey, $settings);
     render_data_dialog($tab, $monthKey);
     echo '</div>';
+    ?>
+    <script>
+        // Close the header overflow menu when clicking anywhere outside it.
+        document.addEventListener('click', function (event) {
+            document.querySelectorAll('details.menu[open]').forEach(function (d) {
+                if (!d.contains(event.target)) d.removeAttribute('open');
+            });
+        });
+    </script>
+    <?php
     layout_foot();
 }
 
 // ---------- Goals tab ----------
 
-function render_goals_tab(array $goals, string $monthKey, bool $isCurrentMonth, ?array $prayer, int $prayerPercent, int $todayPrayers, int $onPaceCount, int $daysLeft): void
+function render_goals_tab(array $goals, array $books, string $monthKey, bool $isCurrentMonth, ?array $prayer, int $prayerPercent, int $todayPrayers, int $onPaceCount, int $daysLeft): void
 {
     ?>
     <div class="animate-fade-in space-y-8">
@@ -162,7 +220,7 @@ function render_goals_tab(array $goals, string $monthKey, bool $isCurrentMonth, 
 
         <section class="grid gap-5 lg:grid-cols-2">
             <?php foreach ($goals as $goal): ?>
-                <?php render_goal_card($goal, $monthKey, $isCurrentMonth); ?>
+                <?php render_goal_card($goal, $books, $monthKey, $isCurrentMonth); ?>
             <?php endforeach; ?>
         </section>
     </div>
@@ -206,22 +264,33 @@ function bar(int $percent, string $gradient): void
     <?php
 }
 
-function render_goal_card(array $goal, string $monthKey, bool $isCurrentMonth): void
+function render_goal_card(array $goal, array $books, string $monthKey, bool $isCurrentMonth): void
 {
     $meta = category_meta($goal['category']);
     $percent = goal_percent($goal, $monthKey);
     $onPace = goal_on_pace($goal, $monthKey);
+    $protected = !empty($goal['locked']);
     ?>
     <div class="flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-5">
         <div class="mb-4 flex items-start justify-between gap-2">
             <div>
                 <?php category_badge($goal['category']); ?>
-                <h3 class="mt-2 text-lg font-semibold text-white"><?= e($goal['title']) ?></h3>
+                <h3 class="mt-2 text-lg font-semibold text-white">
+                    <?= e($goal['title']) ?>
+                    <?php if ($protected): ?><span title="Protected — unlock to delete" class="ml-1 align-middle text-xs text-amber-300/80">🔒</span><?php endif; ?>
+                </h3>
             </div>
             <div class="flex items-center gap-2">
                 <?php pace_chip($onPace); ?>
-                <?php if (empty($goal['locked'])): ?>
-                    <form method="post" action="<?= e(app_url('/action')) ?>" onsubmit="return confirm('Delete this goal?')" class="contents">
+                <form method="post" action="<?= e(app_url('/action')) ?>" class="contents">
+                    <?= action_context('goals', $monthKey) ?>
+                    <input type="hidden" name="action" value="toggleProtect">
+                    <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
+                    <button type="submit" title="<?= $protected ? 'Unlock so this card can be deleted' : 'Protect this card so it can\'t be deleted' ?>"
+                            class="<?= cn('rounded-lg border px-2 py-1 text-[11px] transition', $protected ? 'border-amber-400/30 bg-amber-500/10 text-amber-200' : 'border-white/10 bg-white/5 text-slate-500 hover:text-slate-200') ?>"><?= $protected ? '🔒' : '🔓' ?></button>
+                </form>
+                <?php if (!$protected): ?>
+                    <form method="post" action="<?= e(app_url('/action')) ?>" onsubmit="return confirm('Delete this goal? This can be undone from History.')" class="contents">
                         <?= action_context('goals', $monthKey) ?>
                         <input type="hidden" name="action" value="deleteGoal">
                         <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
@@ -238,6 +307,14 @@ function render_goal_card(array $goal, string $monthKey, bool $isCurrentMonth): 
         <?php else: ?>
             <?php render_project_body($goal, $monthKey, $percent, $meta); ?>
         <?php endif; ?>
+
+        <?php
+        // Every card can carry an options backlog + monthly picks. For "log entries"
+        // count goals this is the primary logging surface (shown expanded);
+        // otherwise it's an optional collapsed section.
+        $isPrimaryLog = $goal['type'] === 'count' && !empty($goal['logEntries']);
+        render_goal_backlog($goal, $books, $monthKey, $meta, !$isPrimaryLog);
+        ?>
     </div>
     <?php
 }
@@ -334,34 +411,7 @@ function render_count_body(array $goal, string $monthKey, int $percent, array $m
 
         <?php bar($percent, $meta['gradient']); ?>
 
-        <?php if (!empty($goal['logEntries'])): ?>
-            <div class="space-y-3">
-                <form method="post" action="<?= e(app_url('/action')) ?>" class="flex gap-2">
-                    <?= action_context('goals', $monthKey) ?>
-                    <input type="hidden" name="action" value="addEntry">
-                    <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
-                    <input name="label" placeholder="<?= $goal['category'] === 'reading' ? 'Book you read…' : 'What you made…' ?>" class="<?= cn(INPUT_CLASS, 'py-1.5') ?>">
-                    <button type="submit" class="<?= cn('shrink-0 rounded-lg border border-transparent bg-linear-to-r px-4 py-1.5 text-sm font-medium text-white transition hover:brightness-110', $meta['gradient']) ?>">+ Log</button>
-                </form>
-                <?php $entries = count_entries($goal, $monthKey); ?>
-                <?php if (count($entries) > 0): ?>
-                    <ul class="space-y-1.5">
-                        <?php foreach ($entries as $i => $label): ?>
-                            <li class="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5">
-                                <span class="min-w-0 truncate text-sm text-slate-200"><?= e($label) ?></span>
-                                <form method="post" action="<?= e(app_url('/action')) ?>" class="contents">
-                                    <?= action_context('goals', $monthKey) ?>
-                                    <input type="hidden" name="action" value="removeEntry">
-                                    <input type="hidden" name="goalId" value="<?= e($goal['id']) ?>">
-                                    <input type="hidden" name="index" value="<?= $i ?>">
-                                    <button type="submit" title="Remove" class="shrink-0 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-slate-500 transition hover:border-rose-400/30 hover:text-rose-200">✕</button>
-                                </form>
-                            </li>
-                        <?php endforeach; ?>
-                    </ul>
-                <?php endif; ?>
-            </div>
-        <?php else: ?>
+        <?php if (empty($goal['logEntries'])): ?>
             <div class="flex gap-2">
                 <form method="post" action="<?= e(app_url('/action')) ?>" class="contents">
                     <?= action_context('goals', $monthKey) ?>
@@ -417,6 +467,134 @@ function render_project_body(array $goal, string $monthKey, int $percent, array 
         </div>
     </div>
     <?php
+}
+
+// ---------- Shared: options backlog + monthly picks ----------
+
+/**
+ * A reusable "options list" any goal can carry: a backlog of candidate items you
+ * can pick into the current month (logged as entries), plus free-text logging.
+ * For the reading goal the options come straight from the Books tab.
+ */
+function render_goal_backlog(array $goal, array $books, string $monthKey, array $meta, bool $collapsed): void
+{
+    $isReading = ($goal['category'] ?? '') === 'reading';
+    $entries = count_entries($goal, $monthKey);
+
+    if ($isReading) {
+        // Options map to books: currently-reading titles first, then the rest.
+        $reading = array_values(array_filter($books, fn($b) => empty($b['finishedOn'])));
+        $done = array_values(array_filter($books, fn($b) => !empty($b['finishedOn'])));
+        $options = array_map(fn($b) => $b['title'], array_merge($reading, $done));
+        $options = array_values(array_unique($options));
+    } else {
+        $options = $goal['options'] ?? [];
+    }
+
+    $listId = 'opts-' . $goal['id'];
+    $goalId = $goal['id'];
+
+    ob_start();
+    ?>
+    <div class="space-y-3">
+        <?php if (count($options) > 0): ?>
+            <div>
+                <p class="mb-1.5 text-xs uppercase tracking-widest text-slate-500"><?= $isReading ? 'Pick a book to log · this month' : 'Pick from your list · this month' ?></p>
+                <div class="flex flex-wrap gap-1.5">
+                    <?php foreach ($options as $opt): ?>
+                        <form method="post" action="<?= e(app_url('/action')) ?>" class="contents">
+                            <?= action_context('goals', $monthKey) ?>
+                            <input type="hidden" name="action" value="addEntry">
+                            <input type="hidden" name="goalId" value="<?= e($goalId) ?>">
+                            <input type="hidden" name="label" value="<?= e($opt) ?>">
+                            <button type="submit" title="Log “<?= e($opt) ?>” for <?= e(month_label($monthKey)) ?>"
+                                    class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-200 transition hover:border-cyan-400/30 hover:bg-cyan-500/10 hover:text-cyan-100">+ <?= e($opt) ?></button>
+                        </form>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <form method="post" action="<?= e(app_url('/action')) ?>" class="flex gap-2">
+            <?= action_context('goals', $monthKey) ?>
+            <input type="hidden" name="action" value="addEntry">
+            <input type="hidden" name="goalId" value="<?= e($goalId) ?>">
+            <label class="sr-only" for="<?= e($listId) ?>-input">Log an entry</label>
+            <input id="<?= e($listId) ?>-input" name="label" list="<?= e($listId) ?>" placeholder="<?= $isReading ? 'Book you finished…' : 'Log something…' ?>" class="<?= cn(INPUT_CLASS, 'py-1.5') ?>">
+            <?php if (count($options) > 0): ?>
+                <datalist id="<?= e($listId) ?>">
+                    <?php foreach ($options as $opt): ?><option value="<?= e($opt) ?>"><?php endforeach; ?>
+                </datalist>
+            <?php endif; ?>
+            <button type="submit" class="<?= cn('shrink-0 rounded-lg border border-transparent bg-linear-to-r px-4 py-1.5 text-sm font-medium text-white transition hover:brightness-110', $meta['gradient']) ?>">+ Log</button>
+        </form>
+
+        <?php if (count($entries) > 0): ?>
+            <ul class="space-y-1.5">
+                <?php foreach ($entries as $i => $label): ?>
+                    <li class="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5">
+                        <span class="min-w-0 truncate text-sm text-slate-200"><?= e($label) ?></span>
+                        <form method="post" action="<?= e(app_url('/action')) ?>" class="contents">
+                            <?= action_context('goals', $monthKey) ?>
+                            <input type="hidden" name="action" value="removeEntry">
+                            <input type="hidden" name="goalId" value="<?= e($goalId) ?>">
+                            <input type="hidden" name="index" value="<?= $i ?>">
+                            <button type="submit" title="Remove" class="shrink-0 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-slate-500 transition hover:border-rose-400/30 hover:text-rose-200">✕</button>
+                        </form>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        <?php endif; ?>
+
+        <?php if ($isReading): ?>
+            <p class="text-[11px] text-slate-500">These options come from your <a href="<?= e(app_url('/?tab=books&month=' . $monthKey)) ?>" class="text-cyan-300 underline-offset-2 hover:underline">Books</a> tab — add or finish books there.</p>
+        <?php else: ?>
+            <details class="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                <summary class="cursor-pointer text-xs text-slate-400">Manage options list<?= count($options) > 0 ? ' · ' . count($options) : '' ?></summary>
+                <div class="mt-2 space-y-2">
+                    <p class="text-[11px] text-slate-500">Keep a backlog of choices (e.g. every house job or video idea for the year), then tap one to log it in any month.</p>
+                    <form method="post" action="<?= e(app_url('/action')) ?>" class="flex gap-2">
+                        <?= action_context('goals', $monthKey) ?>
+                        <input type="hidden" name="action" value="addOption">
+                        <input type="hidden" name="goalId" value="<?= e($goalId) ?>">
+                        <label class="sr-only" for="<?= e($listId) ?>-add">Add an option</label>
+                        <input id="<?= e($listId) ?>-add" name="label" placeholder="Add an option to the list…" class="<?= cn(INPUT_CLASS, 'py-1.5') ?>">
+                        <button type="submit" class="shrink-0 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10">Add</button>
+                    </form>
+                    <?php if (count($options) > 0): ?>
+                        <ul class="space-y-1">
+                            <?php foreach ($options as $i => $opt): ?>
+                                <li class="flex items-center justify-between gap-2 rounded-md border border-white/10 bg-white/5 px-2.5 py-1">
+                                    <span class="min-w-0 truncate text-xs text-slate-300"><?= e($opt) ?></span>
+                                    <form method="post" action="<?= e(app_url('/action')) ?>" class="contents">
+                                        <?= action_context('goals', $monthKey) ?>
+                                        <input type="hidden" name="action" value="removeOption">
+                                        <input type="hidden" name="goalId" value="<?= e($goalId) ?>">
+                                        <input type="hidden" name="index" value="<?= $i ?>">
+                                        <button type="submit" title="Remove option" class="shrink-0 rounded border border-white/10 bg-white/5 px-1.5 text-[11px] text-slate-500 transition hover:border-rose-400/30 hover:text-rose-200">✕</button>
+                                    </form>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </div>
+            </details>
+        <?php endif; ?>
+    </div>
+    <?php
+    $inner = ob_get_clean();
+
+    if ($collapsed) {
+        $count = count($entries);
+        ?>
+        <details class="mt-4 border-t border-white/10 pt-3">
+            <summary class="cursor-pointer text-xs uppercase tracking-widest text-slate-500">Options &amp; monthly picks<?= $count > 0 ? ' · ' . $count : '' ?></summary>
+            <div class="mt-3"><?= $inner ?></div>
+        </details>
+        <?php
+    } else {
+        echo '<div class="mt-4">' . $inner . '</div>';
+    }
 }
 
 // ---------- Outreach tab ----------
@@ -733,6 +911,39 @@ function render_edit_outreach_dialog(array $item, string $monthKey): void
     modal_close();
 }
 
+function render_settings_dialog(string $tab, string $monthKey, array $settings): void
+{
+    modal_open('settings-modal', 'Settings');
+    ?>
+    <form method="post" action="<?= e(app_url('/action')) ?>" class="space-y-4">
+        <?= action_context($tab, $monthKey) ?>
+        <input type="hidden" name="action" value="updateSettings">
+        <p class="text-sm text-slate-400">Choose which sections show up in the top navigation. Hidden sections keep their data — they're just tucked away.</p>
+        <div class="space-y-2">
+            <?php
+            $rows = [
+                ['showGoals', '🎯', 'Goals', 'Your month-aware life goals.'],
+                ['showFollowups', '✉', 'Follow-ups', 'The outreach / contact pipeline.'],
+                ['showBooks', '📚', 'Books', 'Reading log with notes & quotes.'],
+            ];
+            foreach ($rows as [$key, $icon, $label, $hint]):
+            ?>
+                <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-200">
+                    <input type="checkbox" name="<?= e($key) ?>" value="1" <?= !empty($settings[$key]) ? 'checked' : '' ?> class="mt-0.5 h-4 w-4 rounded border-white/20 accent-cyan-500">
+                    <span>
+                        <span class="font-medium text-white"><?= $icon ?> <?= e($label) ?></span>
+                        <span class="mt-0.5 block text-xs text-slate-400"><?= e($hint) ?></span>
+                    </span>
+                </label>
+            <?php endforeach; ?>
+        </div>
+        <p class="text-[11px] text-slate-500">At least one section stays on — if you turn everything off, Goals comes back.</p>
+        <button type="submit" class="w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110">Save settings</button>
+    </form>
+    <?php
+    modal_close();
+}
+
 function render_data_dialog(string $tab, string $monthKey): void
 {
     modal_open('data-modal', 'Backup & restore');
@@ -760,6 +971,244 @@ function render_data_dialog(string $tab, string $monthKey): void
             </form>
         </div>
     </div>
+    <?php
+    modal_close();
+}
+
+// ---------- Books tab ----------
+
+function render_books_tab(array $books, string $monthKey): void
+{
+    $clubCount = count(array_filter($books, fn($b) => !empty($b['bookClub'])));
+
+    $reading = array_values(array_filter($books, fn($b) => empty($b['finishedOn'])));
+    $completed = array_values(array_filter($books, fn($b) => !empty($b['finishedOn'])));
+    // Archive: most recently finished first.
+    usort($completed, fn($a, $b) => strcmp((string) ($b['finishedOn'] ?? ''), (string) ($a['finishedOn'] ?? '')));
+    ?>
+    <div class="animate-fade-in space-y-6" id="books-root">
+        <section class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+                <p class="text-sm text-slate-400">Reading log &amp; notes</p>
+                <h1 class="mt-1 text-3xl font-bold tracking-tight text-white sm:text-4xl">Books</h1>
+            </div>
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300">
+                <input type="checkbox" onchange="document.getElementById('books-root').classList.toggle('club-only', this.checked)"
+                       class="h-4 w-4 rounded border-white/20 accent-emerald-500">
+                <span>Open Book view</span>
+                <span class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] text-emerald-200"><?= $clubCount ?> pick<?= $clubCount === 1 ? '' : 's' ?></span>
+            </label>
+        </section>
+
+        <p class="text-xs text-slate-500">Toggle <span class="text-emerald-200">Open Book view</span> to show only the books you flagged to discuss at your next book club / Open Book month.</p>
+
+        <?php if (count($books) === 0): ?>
+            <?php empty_hint('No books yet. Add one with the “New book” button.'); ?>
+        <?php else: ?>
+            <section class="space-y-3">
+                <div class="flex items-center gap-2">
+                    <h2 class="text-sm font-semibold text-cyan-200">Currently reading</h2>
+                    <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-300"><?= count($reading) ?></span>
+                </div>
+                <?php if (count($reading) === 0): ?>
+                    <?php empty_hint('Nothing in progress. Add a book or move one back from the archive.'); ?>
+                <?php else: ?>
+                    <div class="grid gap-5 lg:grid-cols-2">
+                        <?php foreach ($reading as $book) render_book_card($book, $monthKey); ?>
+                    </div>
+                <?php endif; ?>
+            </section>
+
+            <?php if (count($completed) > 0): ?>
+                <details class="group rounded-2xl border border-white/10 bg-white/[0.02] p-4" open>
+                    <summary class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-300">
+                        <span aria-hidden="true">📚</span> Archive · completed
+                        <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs text-slate-400"><?= count($completed) ?></span>
+                    </summary>
+                    <div class="mt-4 grid gap-5 lg:grid-cols-2">
+                        <?php foreach ($completed as $book) render_book_card($book, $monthKey); ?>
+                    </div>
+                </details>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
+    <style>
+        #books-root.club-only [data-bookclub="0"] { display: none; }
+    </style>
+    <?php
+}
+
+function render_book_card(array $book, string $monthKey): void
+{
+    $id = $book['id'];
+    $club = !empty($book['bookClub']);
+    $completed = !empty($book['finishedOn']);
+    $notes = $book['notes'] ?? [];
+    ?>
+    <div data-bookclub="<?= $club ? '1' : '0' ?>" class="<?= cn('flex flex-col rounded-2xl border bg-white/[0.03] p-5', $club ? 'border-emerald-400/30' : 'border-white/10') ?>">
+        <div class="mb-3 flex items-start justify-between gap-2">
+            <div class="min-w-0">
+                <div class="mb-1 flex flex-wrap items-center gap-1.5">
+                    <?php if ($completed): ?>
+                        <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium text-slate-300">✓ Completed</span>
+                    <?php else: ?>
+                        <span class="rounded-full bg-cyan-500/15 px-2 py-0.5 text-[10px] font-medium text-cyan-200">Reading</span>
+                    <?php endif; ?>
+                    <?php if ($club): ?>
+                        <span class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-200">Book club</span>
+                    <?php endif; ?>
+                </div>
+                <h3 class="text-lg font-semibold text-white"><?= e($book['title']) ?></h3>
+                <?php if (!empty($book['author'])): ?>
+                    <p class="text-sm text-slate-400">by <?= e($book['author']) ?></p>
+                <?php endif; ?>
+            </div>
+            <div class="flex shrink-0 items-center gap-1.5">
+                <button type="button" onclick="document.getElementById('edit-book-<?= e($id) ?>').showModal()" class="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-slate-400 transition hover:text-slate-200">Edit</button>
+                <form method="post" action="<?= e(app_url('/action')) ?>" onsubmit="return confirm('Delete this book and its notes? This can be undone from History.')" class="contents">
+                    <?= action_context('books', $monthKey) ?>
+                    <input type="hidden" name="action" value="deleteBook">
+                    <input type="hidden" name="id" value="<?= e($id) ?>">
+                    <button type="submit" title="Delete book" class="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-slate-500 transition hover:border-rose-400/30 hover:text-rose-200">✕</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="mb-3 grid grid-cols-3 gap-2 text-center">
+            <div class="rounded-lg border border-white/10 bg-black/20 p-2">
+                <p class="text-sm font-semibold text-white"><?= e($book['readingTime'] ?: '—') ?></p>
+                <p class="text-[10px] uppercase tracking-widest text-slate-500">Reading time</p>
+            </div>
+            <div class="rounded-lg border border-white/10 bg-black/20 p-2">
+                <p class="text-sm font-semibold text-white"><?= (int) ($book['pages'] ?? 0) ?: '—' ?></p>
+                <p class="text-[10px] uppercase tracking-widest text-slate-500">Pages</p>
+            </div>
+            <div class="rounded-lg border border-white/10 bg-black/20 p-2">
+                <p class="text-sm font-semibold text-white"><?= !empty($book['finishedOn']) ? e(format_short_date($book['finishedOn'])) : '—' ?></p>
+                <p class="text-[10px] uppercase tracking-widest text-slate-500">Finished</p>
+            </div>
+        </div>
+
+        <div class="mb-3 grid grid-cols-2 gap-2">
+            <form method="post" action="<?= e(app_url('/action')) ?>">
+                <?= action_context('books', $monthKey) ?>
+                <input type="hidden" name="action" value="toggleBookCompleted">
+                <input type="hidden" name="id" value="<?= e($id) ?>">
+                <button type="submit" class="<?= cn('w-full rounded-lg border p-2 text-xs font-medium transition', $completed ? 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10' : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20') ?>"><?= $completed ? '↩ Move to reading' : '✓ Mark finished' ?></button>
+            </form>
+            <form method="post" action="<?= e(app_url('/action')) ?>">
+                <?= action_context('books', $monthKey) ?>
+                <input type="hidden" name="action" value="toggleBookClub">
+                <input type="hidden" name="id" value="<?= e($id) ?>">
+                <button type="submit" class="<?= cn('flex w-full items-center justify-center gap-2 rounded-lg border p-2 text-xs font-medium transition', $club ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100' : 'border-white/10 bg-white/5 text-slate-300 hover:border-white/20') ?>">
+                    <span class="<?= cn('flex h-3.5 w-3.5 items-center justify-center rounded border', $club ? 'border-emerald-400 bg-emerald-500 text-[9px] text-white' : 'border-white/20') ?>"><?= $club ? '✓' : '' ?></span>
+                    Book club
+                </button>
+            </form>
+        </div>
+
+        <div class="space-y-2">
+            <p class="text-xs uppercase tracking-widest text-slate-500">Quotes &amp; notes<?= count($notes) > 0 ? ' · ' . count($notes) : '' ?></p>
+            <?php if (count($notes) > 0): ?>
+                <ul class="space-y-1.5">
+                    <?php foreach ($notes as $i => $note): ?>
+                        <li class="flex items-start justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                            <div class="min-w-0">
+                                <p class="text-sm text-slate-200"><?= e($note['text']) ?></p>
+                                <?php if (isset($note['page']) && $note['page'] !== null): ?>
+                                    <p class="mt-0.5 text-[11px] text-slate-500">p. <?= (int) $note['page'] ?></p>
+                                <?php endif; ?>
+                            </div>
+                            <form method="post" action="<?= e(app_url('/action')) ?>" class="contents">
+                                <?= action_context('books', $monthKey) ?>
+                                <input type="hidden" name="action" value="removeBookNote">
+                                <input type="hidden" name="id" value="<?= e($id) ?>">
+                                <input type="hidden" name="index" value="<?= $i ?>">
+                                <button type="submit" title="Remove note" class="shrink-0 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-slate-500 transition hover:border-rose-400/30 hover:text-rose-200">✕</button>
+                            </form>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            <?php endif; ?>
+            <form method="post" action="<?= e(app_url('/action')) ?>" class="flex gap-2">
+                <?= action_context('books', $monthKey) ?>
+                <input type="hidden" name="action" value="addBookNote">
+                <input type="hidden" name="id" value="<?= e($id) ?>">
+                <input name="text" required placeholder="Quote or note…" class="<?= cn(INPUT_CLASS, 'py-1.5') ?>">
+                <input type="number" min="0" name="page" placeholder="p." class="<?= cn(INPUT_CLASS, 'w-16 py-1.5') ?>" title="Page number (optional)">
+                <button type="submit" class="shrink-0 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10">Add</button>
+            </form>
+        </div>
+    </div>
+
+    <?php render_edit_book_dialog($book, $monthKey); ?>
+    <?php
+}
+
+function render_add_book_dialog(string $tab, string $monthKey): void
+{
+    modal_open('add-book-modal', 'New book');
+    ?>
+    <form method="post" action="<?= e(app_url('/action')) ?>" class="space-y-4">
+        <?= action_context($tab, $monthKey) ?>
+        <input type="hidden" name="action" value="createBook">
+        <div>
+            <label class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Title</label>
+            <input name="title" required placeholder="e.g. Atomic Habits" class="<?= INPUT_CLASS ?>">
+        </div>
+        <div>
+            <label class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Author</label>
+            <input name="author" placeholder="e.g. James Clear" class="<?= INPUT_CLASS ?>">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+            <div>
+                <label class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Total time to read</label>
+                <input name="readingTime" placeholder="e.g. 6h 20m" class="<?= INPUT_CLASS ?>">
+            </div>
+            <div>
+                <label class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Number of pages</label>
+                <input type="number" min="0" name="pages" placeholder="320" class="<?= INPUT_CLASS ?>">
+            </div>
+        </div>
+        <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+            <input type="checkbox" name="completed" value="1" class="h-4 w-4 rounded border-white/20 accent-cyan-500"
+                   onchange="document.getElementById('add-book-finished').hidden = !this.checked">
+            I've already finished this book (otherwise it goes to “Currently reading”)
+        </label>
+        <div id="add-book-finished" hidden>
+            <label class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Finished on</label>
+            <input type="date" name="finishedOn" value="<?= e(today_key()) ?>" class="<?= INPUT_CLASS ?>">
+        </div>
+        <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+            <input type="checkbox" name="bookClub" value="1" class="h-4 w-4 rounded border-white/20 accent-emerald-500">
+            Discuss at next book club (show in Open Book view)
+        </label>
+        <button type="submit" class="w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110">Add book</button>
+    </form>
+    <?php
+    modal_close();
+}
+
+function render_edit_book_dialog(array $book, string $monthKey): void
+{
+    modal_open('edit-book-' . $book['id'], 'Edit book');
+    ?>
+    <form method="post" action="<?= e(app_url('/action')) ?>" class="space-y-2">
+        <?= action_context('books', $monthKey) ?>
+        <input type="hidden" name="action" value="updateBook">
+        <input type="hidden" name="id" value="<?= e($book['id']) ?>">
+        <input name="title" value="<?= e($book['title']) ?>" class="<?= cn(INPUT_CLASS, 'py-1.5') ?>" placeholder="Title">
+        <input name="author" value="<?= e($book['author'] ?? '') ?>" class="<?= cn(INPUT_CLASS, 'py-1.5') ?>" placeholder="Author">
+        <div class="flex gap-2">
+            <input name="readingTime" value="<?= e($book['readingTime'] ?? '') ?>" class="<?= cn(INPUT_CLASS, 'py-1.5') ?>" placeholder="Total time to read">
+            <input type="number" min="0" name="pages" value="<?= (int) ($book['pages'] ?? 0) ?>" class="<?= cn(INPUT_CLASS, 'w-24 py-1.5') ?>" placeholder="Pages">
+        </div>
+        <input type="date" name="finishedOn" value="<?= e($book['finishedOn'] ?? '') ?>" class="<?= cn(INPUT_CLASS, 'py-1.5') ?>">
+        <div class="mt-2 flex gap-2">
+            <button type="submit" class="flex-1 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/20">Save</button>
+            <button type="button" onclick="this.closest('dialog').close()" class="<?= OUTREACH_BTN ?>">Cancel</button>
+        </div>
+    </form>
     <?php
     modal_close();
 }

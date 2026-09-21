@@ -13,6 +13,14 @@ function layout_head(string $title): void
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= e($title) ?></title>
     <meta name="description" content="A calm, focused personal planner: recurring rhythms, monthly progress, and an outreach inbox.">
+    <!-- PWA: installable, offline-friendly app shell -->
+    <link rel="manifest" href="<?= e(app_url('/manifest.webmanifest')) ?>">
+    <meta name="theme-color" content="#020617">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Rhythm">
+    <link rel="icon" href="<?= e(app_url('/icon.svg')) ?>" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="<?= e(app_url('/icon.svg')) ?>">
     <!-- Keep scroll position when htmx swaps in updated content after an action. -->
     <meta name="htmx-config" content='{"scrollIntoViewOnBoost": false}'>
     <style>
@@ -28,6 +36,14 @@ function layout_head(string $title): void
     </style>
     <script src="https://unpkg.com/htmx.org@4/dist/htmx.min.js"></script>
     <link rel="stylesheet" href="<?= e(app_url('/app.css')) ?>">
+    <script>
+        // Register the service worker so Rhythm can be installed as a PWA.
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('<?= e(app_url('/sw.js')) ?>').catch(function () {});
+            });
+        }
+    </script>
 </head>
 <!-- hx-boost turns every link/form into an AJAX request that swaps the app shell,
      so actions update in place instead of forcing full page reloads. -->

@@ -189,6 +189,7 @@ const CATEGORY_META = [
     'finance'  => ['label' => 'Finance',       'icon' => '💰', 'gradient' => 'from-green-500 to-emerald-500', 'soft' => 'bg-green-500/10 border-green-400/20 text-green-200'],
     'rest'     => ['label' => 'Rest Day',      'icon' => '🌴', 'gradient' => 'from-teal-500 to-cyan-500',     'soft' => 'bg-teal-500/10 border-teal-400/20 text-teal-200'],
     'soccer'   => ['label' => 'Soccer',        'icon' => '⚽', 'gradient' => 'from-lime-500 to-green-500',    'soft' => 'bg-lime-500/10 border-lime-400/20 text-lime-200'],
+    'home'     => ['label' => 'Home',          'icon' => '🏠', 'gradient' => 'from-orange-500 to-amber-500',  'soft' => 'bg-orange-500/10 border-orange-400/20 text-orange-200'],
     'other'    => ['label' => 'Goal',          'icon' => '◆',  'gradient' => 'from-slate-500 to-slate-400',   'soft' => 'bg-slate-500/10 border-slate-400/20 text-slate-300'],
 ];
 
@@ -200,7 +201,7 @@ const CHANNEL_META = [
     'meet'  => ['label' => 'Meet',  'icon' => '🤝'],
 ];
 
-const CATEGORIES = ['prayer', 'exercise', 'stretch', 'reading', 'video', 'blog', 'craft', 'finance', 'rest', 'soccer', 'other'];
+const CATEGORIES = ['prayer', 'exercise', 'stretch', 'reading', 'video', 'blog', 'craft', 'finance', 'rest', 'soccer', 'home', 'other'];
 
 function category_meta(string $category): array
 {
@@ -270,4 +271,25 @@ function add_days_string(string $base, int $days): string
 {
     $ts = strtotime($base . ' +' . $days . ' days');
     return date('Y-m-d', $ts ?: time());
+}
+
+/** Friendly relative timestamp for history entries ("3 min ago", "Yesterday"). */
+function format_relative_time(int $timestamp): string
+{
+    $diff = time() - $timestamp;
+    if ($diff < 60) {
+        return 'just now';
+    }
+    if ($diff < 3600) {
+        $m = (int) floor($diff / 60);
+        return $m . ' min ago';
+    }
+    if ($diff < 86400) {
+        $h = (int) floor($diff / 3600);
+        return $h . ' hr ago';
+    }
+    if ($diff < 172800) {
+        return 'yesterday, ' . date('g:i a', $timestamp);
+    }
+    return date('M j, g:i a', $timestamp);
 }

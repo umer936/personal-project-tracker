@@ -56,6 +56,27 @@ function store_read(string $username): array
 
     $db['goals'] = $db['goals'] ?? [];
     $db['outreachItems'] = $db['outreachItems'] ?? [];
+    $db['books'] = $db['books'] ?? [];
+    $db['history'] = $db['history'] ?? [];
+    $db['deletedCoreGoals'] = $db['deletedCoreGoals'] ?? [];
+    $db['settings'] = array_merge(default_settings(), is_array($db['settings'] ?? null) ? $db['settings'] : []);
+
+    // A book's status is derived from finishedOn: empty = currently reading,
+    // a date = completed (archived). Migrate any legacy "completed" flag into
+    // finishedOn, then drop it so there's a single source of truth.
+    foreach ($db['books'] as $i => $book) {
+        if (array_key_exists('completed', $book)) {
+            if (empty($book['completed'])) {
+                $db['books'][$i]['finishedOn'] = '';
+            } elseif (empty($book['finishedOn'])) {
+                $db['books'][$i]['finishedOn'] = today_key();
+            }
+            unset($db['books'][$i]['completed']);
+        }
+        if (!array_key_exists('finishedOn', $book)) {
+            $db['books'][$i]['finishedOn'] = '';
+        }
+    }
 
     // Demo account: lazily reset to defaults once per day.
     if ($username === DEMO_USER && ($db['demoResetOn'] ?? null) !== today_key()) {
@@ -65,11 +86,15 @@ function store_read(string $username): array
         return $db;
     }
 
-    // Merge in any new locked core goals shipped in the seed.
+    // Merge in any new core goals shipped in the seed — but never re-add goals
+    // the user has deliberately deleted (tracked in deletedCoreGoals).
     $existingIds = array_column($db['goals'], 'id');
     $changed = false;
     foreach (default_database()['goals'] as $seedGoal) {
-        if (!empty($seedGoal['locked']) && !in_array($seedGoal['id'], $existingIds, true)) {
+        $isDeleted = in_array($seedGoal['id'], $db['deletedCoreGoals'], true);
+        if (!empty($seedGoal['locked'])
+            && !$isDeleted
+            && !in_array($seedGoal['id'], $existingIds, true)) {
             $db['goals'][] = $seedGoal;
             $changed = true;
         }
@@ -85,6 +110,98 @@ function store_write(string $username, array $db): void
 {
     $path = store_path($username);
     file_put_contents($path, json_encode($db, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+}
+
+// ---------- History / undo ----------
+
+const MAX_HISTORY = 60;
+
+/** The parts of a store worth snapshotting for undo / rollback. */
+function snapshot_state(array $db): array
+{
+    return [
+        'goals' => $db['goals'] ?? [],
+        'outreachItems' => $db['outreachItems'] ?? [],
+        'books' => $db['books'] ?? [],
+        'deletedCoreGoals' => $db['deletedCoreGoals'] ?? [],
+    ];
+}
+
+/**
+ * Snapshot the CURRENT on-disk state before a mutation runs, so it can be
+ * undone or rolled back to later. Call this *before* applying a change.
+ */
+function record_history(string $user, string $label): void
+{
+    $db = store_read($user);
+    $history = $db['history'] ?? [];
+    $history[] = [
+        'ts' => time(),
+        'label' => $label,
+        'state' => snapshot_state($db),
+    ];
+    if (count($history) > MAX_HISTORY) {
+        $history = array_slice($history, -MAX_HISTORY);
+    }
+    $db['history'] = $history;
+    store_write($user, $db);
+}
+
+/** Restore a snapshot's data onto the live store (keeping history + meta). */
+function apply_snapshot(array &$db, array $state): void
+{
+    $db['goals'] = $state['goals'] ?? [];
+    $db['outreachItems'] = $state['outreachItems'] ?? [];
+    $db['books'] = $state['books'] ?? [];
+    $db['deletedCoreGoals'] = $state['deletedCoreGoals'] ?? [];
+}
+
+/** Undo the most recent change. Returns true if anything was undone. */
+function undo_last(string $user): bool
+{
+    $db = store_read($user);
+    $history = $db['history'] ?? [];
+    if (count($history) === 0) {
+        return false;
+    }
+    $entry = array_pop($history);
+    apply_snapshot($db, $entry['state']);
+    $db['history'] = $history;
+    store_write($user, $db);
+    return true;
+}
+
+/**
+ * Roll back to a specific history entry (by index). The current state is first
+ * recorded as a new history entry, so the rollback itself can be undone.
+ */
+function rollback_history(string $user, int $index): bool
+{
+    $db = store_read($user);
+    $history = $db['history'] ?? [];
+    if (!isset($history[$index])) {
+        return false;
+    }
+    // Record where we are now so the restore is reversible.
+    $history[] = [
+        'ts' => time(),
+        'label' => 'Before restoring an earlier version',
+        'state' => snapshot_state($db),
+    ];
+    apply_snapshot($db, $history[$index]['state']);
+    if (count($history) > MAX_HISTORY) {
+        $history = array_slice($history, -MAX_HISTORY);
+    }
+    $db['history'] = $history;
+    store_write($user, $db);
+    return true;
+}
+
+function clear_history(string $user): void
+{
+    $db = store_read($user);
+    $db['history'] = [];
+    store_write($user, $db);
 }
 
 // ---------- Goal helpers ----------
@@ -213,10 +330,84 @@ function create_goal(string $user, array $input): void
 function delete_goal(string $user, string $goalId): void
 {
     $db = store_read($user);
+
+    // If this is a core/seed goal, remember it so store_read doesn't re-add it.
+    $coreIds = array_column(default_database()['goals'], 'id');
+    if (in_array($goalId, $coreIds, true)) {
+        $db['deletedCoreGoals'] = array_values(array_unique(
+            array_merge($db['deletedCoreGoals'] ?? [], [$goalId])
+        ));
+    }
+
     $db['goals'] = array_values(array_filter(
         $db['goals'],
-        fn($g) => $g['id'] !== $goalId || !empty($g['locked'])
+        fn($g) => $g['id'] !== $goalId
     ));
+    store_write($user, $db);
+}
+
+/** Flip a goal's "protected" flag (asks for extra confirmation before delete). */
+function toggle_goal_protected(string $user, string $goalId): void
+{
+    $db = store_read($user);
+    $goal = &find_goal($db, $goalId);
+    if ($goal !== null) {
+        $goal['locked'] = empty($goal['locked']);
+    }
+    store_write($user, $db);
+}
+
+// ---------- Goal option pools ----------
+// A reusable backlog of candidate entries for a goal (e.g. all the house jobs
+// for the year), that can be picked into any month or logged fresh.
+
+function add_goal_option(string $user, string $goalId, string $label): void
+{
+    $trimmed = trim($label);
+    if ($trimmed === '') {
+        return;
+    }
+    $db = store_read($user);
+    $goal = &find_goal($db, $goalId);
+    if ($goal !== null) {
+        $options = $goal['options'] ?? [];
+        if (!in_array($trimmed, $options, true)) {
+            $options[] = $trimmed;
+        }
+        $goal['options'] = array_values($options);
+    }
+    store_write($user, $db);
+}
+
+function remove_goal_option(string $user, string $goalId, int $index): void
+{
+    $db = store_read($user);
+    $goal = &find_goal($db, $goalId);
+    if ($goal !== null) {
+        $options = $goal['options'] ?? [];
+        array_splice($options, $index, 1);
+        $goal['options'] = array_values($options);
+    }
+    store_write($user, $db);
+}
+
+// ---------- Settings ----------
+// Per-user preferences (currently: which sections/tabs are visible).
+
+function update_settings(string $user, array $patch): void
+{
+    $db = store_read($user);
+    $settings = array_merge(default_settings(), is_array($db['settings'] ?? null) ? $db['settings'] : []);
+    foreach (['showGoals', 'showFollowups', 'showBooks'] as $key) {
+        if (array_key_exists($key, $patch)) {
+            $settings[$key] = (bool) $patch[$key];
+        }
+    }
+    // Never let the user hide every section — keep Goals on as a fallback.
+    if (!$settings['showGoals'] && !$settings['showFollowups'] && !$settings['showBooks']) {
+        $settings['showGoals'] = true;
+    }
+    $db['settings'] = $settings;
     store_write($user, $db);
 }
 
@@ -304,6 +495,126 @@ function update_outreach_fields(string $user, string $itemId, array $patch): voi
     store_write($user, $db);
 }
 
+// ---------- Book log ----------
+
+function &find_book(array &$db, string $bookId): ?array
+{
+    $null = null;
+    foreach ($db['books'] as $i => $_) {
+        if ($db['books'][$i]['id'] === $bookId) {
+            return $db['books'][$i];
+        }
+    }
+    return $null;
+}
+
+function create_book(string $user, array $input): void
+{
+    $title = trim($input['title'] ?? '');
+    if ($title === '') {
+        return;
+    }
+    $db = store_read($user);
+    $completed = !empty($input['completed']);
+    $book = [
+        'id' => slugify($title),
+        'title' => $title,
+        'author' => trim($input['author'] ?? ''),
+        'readingTime' => trim($input['readingTime'] ?? ''),
+        'pages' => max(0, (int) ($input['pages'] ?? 0)),
+        'finishedOn' => $completed ? (trim($input['finishedOn'] ?? '') ?: today_key()) : '',
+        'bookClub' => !empty($input['bookClub']),
+        'notes' => [],
+    ];
+    array_unshift($db['books'], $book);
+    store_write($user, $db);
+}
+
+function update_book(string $user, string $bookId, array $patch): void
+{
+    $db = store_read($user);
+    $book = &find_book($db, $bookId);
+    if ($book !== null) {
+        if (array_key_exists('title', $patch) && trim((string) $patch['title']) !== '') {
+            $book['title'] = trim((string) $patch['title']);
+        }
+        if (array_key_exists('author', $patch)) {
+            $book['author'] = trim((string) $patch['author']);
+        }
+        if (array_key_exists('readingTime', $patch)) {
+            $book['readingTime'] = trim((string) $patch['readingTime']);
+        }
+        if (array_key_exists('pages', $patch)) {
+            $book['pages'] = max(0, (int) $patch['pages']);
+        }
+        if (array_key_exists('finishedOn', $patch)) {
+            $book['finishedOn'] = trim((string) $patch['finishedOn']);
+        }
+    }
+    store_write($user, $db);
+}
+
+function delete_book(string $user, string $bookId): void
+{
+    $db = store_read($user);
+    $db['books'] = array_values(array_filter($db['books'], fn($b) => $b['id'] !== $bookId));
+    store_write($user, $db);
+}
+
+function toggle_book_club(string $user, string $bookId): void
+{
+    $db = store_read($user);
+    $book = &find_book($db, $bookId);
+    if ($book !== null) {
+        $book['bookClub'] = empty($book['bookClub']);
+    }
+    store_write($user, $db);
+}
+
+/** Flip a book between "currently reading" and "completed" (archive). */
+function toggle_book_completed(string $user, string $bookId): void
+{
+    $db = store_read($user);
+    $book = &find_book($db, $bookId);
+    if ($book !== null) {
+        // finishedOn is the single source of truth: clearing it moves the book
+        // back to "currently reading"; setting it archives the book as completed.
+        $book['finishedOn'] = !empty($book['finishedOn']) ? '' : today_key();
+    }
+    store_write($user, $db);
+}
+
+function add_book_note(string $user, string $bookId, string $text, ?string $page): void
+{
+    $trimmed = trim($text);
+    if ($trimmed === '') {
+        return;
+    }
+    $db = store_read($user);
+    $book = &find_book($db, $bookId);
+    if ($book !== null) {
+        $notes = $book['notes'] ?? [];
+        $notes[] = [
+            'text' => $trimmed,
+            'page' => ($page !== null && trim($page) !== '') ? (int) $page : null,
+        ];
+        $book['notes'] = $notes;
+    }
+    store_write($user, $db);
+}
+
+function remove_book_note(string $user, string $bookId, int $index): void
+{
+    $db = store_read($user);
+    $book = &find_book($db, $bookId);
+    if ($book !== null) {
+        $notes = $book['notes'] ?? [];
+        array_splice($notes, $index, 1);
+        $book['notes'] = array_values($notes);
+    }
+    store_write($user, $db);
+}
+
 // ---------- Backup / restore ----------
 
 /**
@@ -325,6 +636,10 @@ function import_database(string $user, string $json): ?string
         'version' => $parsed['version'] ?? 2,
         'goals' => array_values($parsed['goals']),
         'outreachItems' => array_values($parsed['outreachItems']),
+        'books' => isset($parsed['books']) && is_array($parsed['books']) ? array_values($parsed['books']) : [],
+        'history' => isset($parsed['history']) && is_array($parsed['history']) ? $parsed['history'] : [],
+        'deletedCoreGoals' => isset($parsed['deletedCoreGoals']) && is_array($parsed['deletedCoreGoals']) ? array_values($parsed['deletedCoreGoals']) : [],
+        'settings' => array_merge(default_settings(), isset($parsed['settings']) && is_array($parsed['settings']) ? $parsed['settings'] : []),
     ];
     // Keep the demo account on its daily-reset schedule.
     if ($user === DEMO_USER) {
