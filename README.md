@@ -118,7 +118,7 @@ This repo now includes a top-level `index.php` wrapper and `.htaccess` so it can
 
 - Request `/proj_tracker/`
 - Apache rewrites clean URLs like `/proj_tracker/login` and `/proj_tracker/action` to the wrapper entry point
-- The app serves its stylesheet at `/proj_tracker/app.css`
+- The app serves its stylesheet at `/proj_tracker/php/public/app.css`
 - Planner data is stored on disk under `data`
 
 No Docker is required for that setup.

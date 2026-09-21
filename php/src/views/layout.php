@@ -35,7 +35,7 @@ function layout_head(string $title): void
         }
     </style>
     <script src="https://unpkg.com/htmx.org@4/dist/htmx.min.js"></script>
-    <link rel="stylesheet" href="<?= e(app_url('/app.css')) ?>">
+    <link rel="stylesheet" href="<?= e(app_url('/php/public/app.css')) ?>">
     <script>
         // Register the service worker so Rhythm can be installed as a PWA.
         if ('serviceWorker' in navigator) {
