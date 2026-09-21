@@ -77,7 +77,7 @@ function render_admin_page(string $user, ?array $flash = null): void
                                             <span class="text-[11px] text-slate-600">—</span>
                                         <?php else: ?>
                                             <form method="post" action="<?= e(app_url('/admin/action')) ?>" class="inline"
-                                                  hx-confirm="Delete “<?= e($row['username']) ?>” and all of their data? This can't be undone.">
+                                                  data-hx-confirm="Delete “<?= e($row['username']) ?>” and all of their data? This can't be undone.">
                                                 <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
                                                 <input type="hidden" name="action" value="deleteUser">
                                                 <input type="hidden" name="username" value="<?= e($row['username']) ?>">

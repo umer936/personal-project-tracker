@@ -951,9 +951,9 @@ function render_data_dialog(string $tab, string $monthKey): void
     <div class="space-y-5">
         <p class="text-sm text-slate-400">Your planner is stored on the server under your account. Export a backup, import one to restore, or reset back to the starter data.</p>
         <div class="space-y-2">
-            <a href="<?= e(app_url('/export')) ?>" hx-boost="false" class="block w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110">⬇ Export backup (.json)</a>
+            <a href="<?= e(app_url('/export')) ?>" data-hx-boost="false" class="block w-full rounded-lg bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110">⬇ Export backup (.json)</a>
 
-            <form method="post" action="<?= e(app_url('/import')) ?>" enctype="multipart/form-data" hx-boost="false">
+            <form method="post" action="<?= e(app_url('/import')) ?>" enctype="multipart/form-data" data-hx-boost="false">
                 <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
                 <input type="file" name="file" accept="application/json,.json" required
                        onchange="document.getElementById('import-submit').disabled = !this.files.length"
@@ -964,7 +964,7 @@ function render_data_dialog(string $tab, string $monthKey): void
             <p class="text-[11px] text-slate-500">Importing replaces everything currently stored. Consider exporting first.</p>
         </div>
         <div class="border-t border-white/10 pt-4">
-            <form method="post" action="<?= e(app_url('/action')) ?>" hx-confirm="Reset all data back to the starter data? This can't be undone.">
+            <form method="post" action="<?= e(app_url('/action')) ?>" data-hx-confirm="Reset all data back to the starter data? This can't be undone.">
                 <?= action_context($tab, $monthKey) ?>
                 <input type="hidden" name="action" value="reset">
                 <button type="submit" class="w-full rounded-lg border border-rose-400/20 bg-rose-500/5 px-4 py-2 text-sm text-rose-200 transition hover:bg-rose-500/10">Reset to starter data</button>

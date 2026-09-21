@@ -29,6 +29,7 @@ function layout_head(string $title): void
             transition: opacity .18s ease;
         }
 
+        /*noinspection CssUnusedSymbol */
         .htmx-request .htmx-indicator,
         .htmx-request.htmx-indicator {
             opacity: 1;
@@ -47,7 +48,7 @@ function layout_head(string $title): void
 </head>
 <!-- hx-boost turns every link/form into an AJAX request that swaps the app shell,
      so actions update in place instead of forcing full page reloads. -->
-<body hx-boost="true" hx-target="#page-shell" hx-select="#page-shell" hx-swap="outerHTML show:window:top" hx-indicator="#htmx-indicator" class="min-h-full flex flex-col bg-slate-950 text-slate-100">
+<body data-hx-boost="true" data-hx-target="#page-shell" data-hx-select="#page-shell" data-hx-swap="outerHTML show:window:top" data-hx-indicator="#htmx-indicator" class="min-h-full flex flex-col bg-slate-950 text-slate-100">
 <div id="htmx-indicator" class="htmx-indicator pointer-events-none fixed inset-x-0 top-0 z-[100] h-1 bg-linear-to-r from-cyan-500 via-fuchsia-500 to-amber-400"></div>
 <?php
 }

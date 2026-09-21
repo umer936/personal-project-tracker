@@ -31,14 +31,14 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
             </div>
 
             <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur">
-                <h1 class="mb-1 text-lg font-semibold text-white"><?= $isRegister ? 'Create an account' : 'Welcome back' ?></h1>
-                <p class="mb-4 text-sm text-slate-400"><?= $isRegister ? 'Your planner is private to your account.' : 'Sign in to see your planner.' ?></p>
+                <h1 class="mb-1 text-lg font-semibold text-white">Choose how to continue</h1>
+                <p class="mb-4 text-sm text-slate-400"><?= $isRegister ? 'Create an account, sign in, or open the demo.' : 'Sign in, make an account, or open the demo.' ?></p>
 
                 <?php if ($error): ?>
                     <p class="mb-4 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200"><?= e($error) ?></p>
                 <?php endif; ?>
 
-                <form method="post" action="<?= e(app_url($isRegister ? '/register' : '/login')) ?>" hx-post="<?= e(app_url($isRegister ? '/register' : '/login')) ?>" hx-target="#page-shell" hx-select="#page-shell" hx-swap="outerHTML show:window:top" class="space-y-3">
+                <form method="post" action="<?= e(app_url($isRegister ? '/register' : '/login')) ?>" data-hx-post="<?= e(app_url($isRegister ? '/register' : '/login')) ?>" data-hx-target="#page-shell" data-hx-select="#page-shell" data-hx-swap="outerHTML show:window:top" class="space-y-3">
                     <input type="hidden" name="csrf" value="<?= e($token) ?>">
                     <div>
                         <label for="username" class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Username</label>
@@ -68,29 +68,29 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
 
                 <div class="mt-6 border-t border-white/10 pt-4">
                     <p class="mb-3 text-center text-xs uppercase tracking-widest text-slate-500">
-                        <?= $isRegister ? 'Other options' : 'More ways to get started' ?>
+                        OR
                     </p>
 
-                    <div class="space-y-3">
+                    <div class="grid gap-3 sm:grid-cols-2">
                         <?php if ($isRegister): ?>
                             <a href="<?= e(app_url('/login')) ?>" class="block w-full rounded-xl border border-cyan-400/30 bg-cyan-500/10 p-4 text-left transition hover:bg-cyan-500/20 hover:text-cyan-100">
-                                <span class="mb-1 block text-sm font-semibold text-cyan-100">Already have an account?</span>
-                                <span class="block text-sm text-slate-300">Go back to sign in and open your planner.</span>
+                                <span class="mb-1 block text-sm font-semibold text-cyan-100">🔐 Sign in instead</span>
+                                <span class="block text-sm text-slate-300">Use an account you already made.</span>
                             </a>
                         <?php else: ?>
                             <a href="<?= e(app_url('/register')) ?>" class="block w-full rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-left transition hover:bg-emerald-500/20 hover:text-emerald-100">
                                 <span class="mb-1 block text-sm font-semibold text-emerald-100">✨ Create an account</span>
-                                <span class="block text-sm text-slate-300">Save your own planner, routines, and history.</span>
+                                <span class="block text-sm text-slate-300">Save your own planner and history.</span>
                             </a>
                         <?php endif; ?>
 
-                        <form method="post" action="<?= e(app_url('/login')) ?>" hx-post="<?= e(app_url('/login')) ?>" hx-target="#page-shell" hx-select="#page-shell" hx-swap="outerHTML show:window:top">
+                        <form method="post" action="<?= e(app_url('/login')) ?>" data-hx-post="<?= e(app_url('/login')) ?>" data-hx-target="#page-shell" data-hx-select="#page-shell" data-hx-swap="outerHTML show:window:top">
                             <input type="hidden" name="csrf" value="<?= e($token) ?>">
                             <input type="hidden" name="username" value="demo">
                             <input type="hidden" name="password" value="<?= e(DEMO_PASSWORD) ?>">
                             <button type="submit" class="block w-full rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-left transition hover:bg-amber-500/15 hover:text-amber-100">
                                 <span class="mb-1 block text-sm font-semibold text-amber-100">👀 Try the demo</span>
-                                <span class="block text-sm text-slate-300">Explore the app instantly — no signup required, resets daily.</span>
+                                <span class="block text-sm text-slate-300">Open the app right away with no signup.</span>
                             </button>
                         </form>
                     </div>

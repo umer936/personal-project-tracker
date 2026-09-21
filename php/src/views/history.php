@@ -52,7 +52,7 @@ function render_history_page(string $user, array $db, ?array $flash = null): voi
                                 <input type="hidden" name="action" value="undo">
                                 <button type="submit" class="flex h-9 items-center gap-1.5 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 text-sm text-cyan-100 transition hover:bg-cyan-500/20">↶ Undo last</button>
                             </form>
-                            <form method="post" action="<?= e(app_url('/history/action')) ?>" hx-confirm="Clear the entire change history? Your current data stays, but you'll no longer be able to undo past changes." class="contents">
+                            <form method="post" action="<?= e(app_url('/history/action')) ?>" data-hx-confirm="Clear the entire change history? Your current data stays, but you'll no longer be able to undo past changes." class="contents">
                                 <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
                                 <input type="hidden" name="action" value="clearHistory">
                                 <button type="submit" class="flex h-9 items-center rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-slate-300 transition hover:bg-white/10">Clear</button>
@@ -88,7 +88,7 @@ function render_history_page(string $user, array $db, ?array $flash = null): voi
                                         </p>
                                     </div>
                                 </div>
-                                <form method="post" action="<?= e(app_url('/history/action')) ?>" hx-confirm="Restore your planner to this earlier version? Your current state is saved first, so you can undo the restore." class="contents">
+                                <form method="post" action="<?= e(app_url('/history/action')) ?>" data-hx-confirm="Restore your planner to this earlier version? Your current state is saved first, so you can undo the restore." class="contents">
                                     <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
                                     <input type="hidden" name="action" value="rollback">
                                     <input type="hidden" name="index" value="<?= $i ?>">
