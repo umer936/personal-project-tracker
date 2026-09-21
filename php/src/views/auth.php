@@ -21,7 +21,7 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
     </div>
 
     <main class="relative flex min-h-screen items-center justify-center p-4">
-        <div class="animate-fade-in w-full max-w-sm">
+        <div class="animate-fade-in w-full max-w-md">
             <div class="mb-6 flex items-center justify-center gap-2.5">
                 <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-cyan-500 to-fuchsia-500 text-base font-bold text-white shadow-lg shadow-fuchsia-500/30">R</div>
                 <div class="leading-tight">
@@ -41,21 +41,21 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
                 <form method="post" action="<?= e(app_url($isRegister ? '/register' : '/login')) ?>" hx-post="<?= e(app_url($isRegister ? '/register' : '/login')) ?>" hx-target="#page-shell" hx-select="#page-shell" hx-swap="outerHTML show:window:top" class="space-y-3">
                     <input type="hidden" name="csrf" value="<?= e($token) ?>">
                     <div>
-                        <label class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Username</label>
-                        <input name="username" value="<?= e($username) ?>" autofocus autocomplete="username"
+                        <label for="username" class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Username</label>
+                        <input id="username" name="username" value="<?= e($username) ?>" autofocus autocomplete="username"
                                class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/50"
                                placeholder="e.g. umer">
                     </div>
                     <div>
-                        <label class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Password</label>
-                        <input name="password" type="password" autocomplete="<?= $isRegister ? 'new-password' : 'current-password' ?>"
+                        <label for="password" class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Password</label>
+                        <input id="password" name="password" type="password" autocomplete="<?= $isRegister ? 'new-password' : 'current-password' ?>"
                                class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/50"
                                placeholder="••••••••">
                     </div>
                     <?php if ($isRegister): ?>
                         <div>
-                            <label class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Confirm password</label>
-                            <input name="confirm" type="password" autocomplete="new-password"
+                            <label for="confirm" class="mb-1 block text-xs uppercase tracking-widest text-slate-500">Confirm password</label>
+                            <input id="confirm" name="confirm" type="password" autocomplete="new-password"
                                    class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/50"
                                    placeholder="••••••••">
                         </div>
@@ -66,23 +66,36 @@ function render_auth_page(string $mode, ?string $error, string $username = ''): 
                     </button>
                 </form>
 
-                <div class="mt-4 text-center text-sm text-slate-400">
-                    <?php if ($isRegister): ?>
-                        Already have an account? <a href="<?= e(app_url('/login')) ?>" class="text-cyan-300 hover:text-cyan-200">Sign in</a>
-                    <?php else: ?>
-                        New here? <a href="<?= e(app_url('/register')) ?>" class="text-cyan-300 hover:text-cyan-200">Create an account</a>
-                    <?php endif; ?>
+                <div class="mt-6 border-t border-white/10 pt-4">
+                    <p class="mb-3 text-center text-xs uppercase tracking-widest text-slate-500">
+                        <?= $isRegister ? 'Other options' : 'More ways to get started' ?>
+                    </p>
+
+                    <div class="space-y-3">
+                        <?php if ($isRegister): ?>
+                            <a href="<?= e(app_url('/login')) ?>" class="block w-full rounded-xl border border-cyan-400/30 bg-cyan-500/10 p-4 text-left transition hover:bg-cyan-500/20 hover:text-cyan-100">
+                                <span class="mb-1 block text-sm font-semibold text-cyan-100">Already have an account?</span>
+                                <span class="block text-sm text-slate-300">Go back to sign in and open your planner.</span>
+                            </a>
+                        <?php else: ?>
+                            <a href="<?= e(app_url('/register')) ?>" class="block w-full rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-left transition hover:bg-emerald-500/20 hover:text-emerald-100">
+                                <span class="mb-1 block text-sm font-semibold text-emerald-100">✨ Create an account</span>
+                                <span class="block text-sm text-slate-300">Save your own planner, routines, and history.</span>
+                            </a>
+                        <?php endif; ?>
+
+                        <form method="post" action="<?= e(app_url('/login')) ?>" hx-post="<?= e(app_url('/login')) ?>" hx-target="#page-shell" hx-select="#page-shell" hx-swap="outerHTML show:window:top">
+                            <input type="hidden" name="csrf" value="<?= e($token) ?>">
+                            <input type="hidden" name="username" value="demo">
+                            <input type="hidden" name="password" value="<?= e(DEMO_PASSWORD) ?>">
+                            <button type="submit" class="block w-full rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-left transition hover:bg-amber-500/15 hover:text-amber-100">
+                                <span class="mb-1 block text-sm font-semibold text-amber-100">👀 Try the demo</span>
+                                <span class="block text-sm text-slate-300">Explore the app instantly — no signup required, resets daily.</span>
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </div>
-
-            <form method="post" action="<?= e(app_url('/login')) ?>" hx-post="<?= e(app_url('/login')) ?>" hx-target="#page-shell" hx-select="#page-shell" hx-swap="outerHTML show:window:top" class="mt-4">
-                <input type="hidden" name="csrf" value="<?= e($token) ?>">
-                <input type="hidden" name="username" value="demo">
-                <input type="hidden" name="password" value="<?= e(DEMO_PASSWORD) ?>">
-                <button type="submit" class="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white">
-                    👀 Try the demo <span class="text-slate-500">— resets daily</span>
-                </button>
-            </form>
         </div>
     </main>
     </div>
